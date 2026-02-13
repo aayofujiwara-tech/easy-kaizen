@@ -24,7 +24,6 @@ export async function POST(req: NextRequest) {
     const id = uuidv4();
     let imagePath: string | null = null;
 
-    // 画像を保存（Vercelではファイルシステム書き込み不可のためスキップ可）
     if (imageFile && imageFile.size > 0) {
       try {
         const uploadsDir = path.join(process.cwd(), "public", "uploads");
@@ -42,14 +41,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // DBに保存（better-sqlite3が使えない環境ではスキップ）
     insertReport({ id, emotion, raw_text: text, image_path: imagePath });
 
-    // AI分析（フィードバックを返すため同期で待つ）
     const aiResult = await analyzeWithAi(emotion, text);
     updateReportAiResult(id, aiResult);
 
-    // Google Sheets保存 + メール通知（fire-and-forget: ユーザーを待たせない）
     const backgroundPayload = {
       emotion,
       rawText: text,
@@ -58,19 +54,19 @@ export async function POST(req: NextRequest) {
       priority: aiResult.priority,
     };
 
-    appendToSheet(backgroundPayload).catch((err) => {
-      console.error("[Google Sheets] 書き込みエラー:", err);
-      if (err instanceof Error) {
-        console.error("[Google Sheets] スタックトレース:", err.stack);
-      }
-    });
+    // Vercelサーバーレス環境ではレスポンス後にバックグラウンド処理が実行されないため
+    // awaitで完了を待つ必要がある
+    const [sheetsResult, emailResult] = await Promise.allSettled([
+      appendToSheet(backgroundPayload),
+      sendNotificationEmail(backgroundPayload),
+    ]);
 
-    sendNotificationEmail(backgroundPayload).catch((err) => {
-      console.error("[Email] 送信エラー:", err);
-      if (err instanceof Error) {
-        console.error("[Email] スタックトレース:", err.stack);
-      }
-    });
+    if (sheetsResult.status === "rejected") {
+      console.error("[Google Sheets] 書き込みエラー:", sheetsResult.reason);
+    }
+    if (emailResult.status === "rejected") {
+      console.error("[Email] 送信エラー:", emailResult.reason);
+    }
 
     return NextResponse.json({
       id,
