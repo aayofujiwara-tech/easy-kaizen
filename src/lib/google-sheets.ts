@@ -31,7 +31,7 @@ function getAuth() {
     key: privateKey.replace(/\\n/g, "\n"),
     scopes: [
       "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/drive",
     ],
   });
 }
@@ -58,6 +58,7 @@ async function uploadImageToDrive(
     requestBody: {
       name: fileName,
       parents: [folderId],
+      writersCanShare: true,
     },
     media: {
       mimeType: "image/jpeg",
@@ -68,13 +69,18 @@ async function uploadImageToDrive(
 
   const fileId = res.data.id!;
 
-  await drive.permissions.create({
-    fileId,
-    requestBody: {
-      type: "anyone",
-      role: "reader",
-    },
-  });
+  try {
+    await drive.permissions.create({
+      fileId,
+      supportsAllDrives: true,
+      requestBody: {
+        type: "anyone",
+        role: "reader",
+      },
+    });
+  } catch (permErr) {
+    console.warn("[Drive] 権限設定をスキップ（フォルダの共有設定で代替可）:", permErr);
+  }
 
   return `https://drive.google.com/file/d/${fileId}/view`;
 }
