@@ -25,8 +25,12 @@ export async function sendNotificationEmail(
   const fromAddress = process.env.NOTIFY_FROM_EMAIL;
   const toAddress = process.env.NOTIFY_TO_EMAIL || FALLBACK_TO_EMAIL;
 
-  if (!smtpHost || !smtpUser || smtpUser.startsWith("your_")) {
-    console.warn("[Email] SMTP設定が未設定または初期値のためスキップ");
+  if (!smtpHost || smtpHost.startsWith("your_")) {
+    console.warn("[Email] SMTP_HOST が未設定またはプレースホルダーのためスキップ");
+    return;
+  }
+  if (smtpUser && smtpUser.startsWith("your_")) {
+    console.warn("[Email] SMTP_USER がプレースホルダーのためスキップ");
     return;
   }
 

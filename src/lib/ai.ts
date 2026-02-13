@@ -42,8 +42,11 @@ function buildUserMessage(emotion: string, text: string): string {
   return `【感情ラベル】${label}\n【報告内容】${text}`;
 }
 
-function isValidApiKey(key: string | undefined): key is string {
-  return !!key && !key.startsWith("your_") && key.length > 10;
+function isValidApiKey(key: string | undefined): boolean {
+  if (!key) return false;
+  if (key.startsWith("your_")) return false;
+  if (key.length < 10) return false;
+  return true;
 }
 
 export async function analyzeWithAi(
@@ -54,11 +57,20 @@ export async function analyzeWithAi(
   const openaiKey = process.env.OPENAI_API_KEY;
 
   if (isValidApiKey(geminiKey)) {
-    return analyzeWithGemini(geminiKey, emotion, text);
+    try {
+      return await analyzeWithGemini(geminiKey!, emotion, text);
+    } catch (e) {
+      console.error("Gemini API failed, using fallback:", e);
+      return generateFallbackResult(emotion, text);
+    }
   } else if (isValidApiKey(openaiKey)) {
-    return analyzeWithOpenAi(openaiKey, emotion, text);
+    try {
+      return await analyzeWithOpenAi(openaiKey!, emotion, text);
+    } catch (e) {
+      console.error("OpenAI API failed, using fallback:", e);
+      return generateFallbackResult(emotion, text);
+    }
   } else {
-    // フォールバック: APIキーがない場合のデフォルト処理
     return generateFallbackResult(emotion, text);
   }
 }
@@ -68,47 +80,42 @@ async function analyzeWithGemini(
   emotion: string,
   text: string
 ): Promise<AiResult> {
-  try {
-    const userMessage = buildUserMessage(emotion, text);
+  const userMessage = buildUserMessage(emotion, text);
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: `${SYSTEM_PROMPT}\n\n${userMessage}` },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.3,
-            responseMimeType: "application/json",
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: `${SYSTEM_PROMPT}\n\n${userMessage}` },
+            ],
           },
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("Gemini API error:", errText);
-      return generateFallbackResult(emotion, text);
+        ],
+        generationConfig: {
+          temperature: 0.3,
+          responseMimeType: "application/json",
+        },
+      }),
     }
+  );
 
-    const data = await res.json();
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!content) {
-      return generateFallbackResult(emotion, text);
-    }
-
-    return JSON.parse(content) as AiResult;
-  } catch (error) {
-    console.error("Gemini fetch error:", error);
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("Gemini API error:", errText);
     return generateFallbackResult(emotion, text);
   }
+
+  const data = await res.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!content) {
+    return generateFallbackResult(emotion, text);
+  }
+
+  return JSON.parse(content) as AiResult;
 }
 
 async function analyzeWithOpenAi(
@@ -116,43 +123,38 @@ async function analyzeWithOpenAi(
   emotion: string,
   text: string
 ): Promise<AiResult> {
-  try {
-    const userMessage = buildUserMessage(emotion, text);
+  const userMessage = buildUserMessage(emotion, text);
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-      }),
-    });
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.3,
+      response_format: { type: "json_object" },
+    }),
+  });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("OpenAI API error:", errText);
-      return generateFallbackResult(emotion, text);
-    }
-
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      return generateFallbackResult(emotion, text);
-    }
-
-    return JSON.parse(content) as AiResult;
-  } catch (error) {
-    console.error("OpenAI fetch error:", error);
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("OpenAI API error:", errText);
     return generateFallbackResult(emotion, text);
   }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    return generateFallbackResult(emotion, text);
+  }
+
+  return JSON.parse(content) as AiResult;
 }
 
 function generateFallbackResult(emotion: string, text: string): AiResult {
