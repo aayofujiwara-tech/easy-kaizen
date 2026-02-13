@@ -40,7 +40,13 @@ async function uploadImageToDrive(
   auth: InstanceType<typeof google.auth.JWT>,
   imageBase64: string,
   fileName: string
-): Promise<string> {
+): Promise<string | null> {
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  if (!folderId) {
+    console.log("[Drive] スキップ: GOOGLE_DRIVE_FOLDER_ID 未設定");
+    return null;
+  }
+
   const drive = google.drive({ version: "v3", auth });
 
   const buffer = Buffer.from(imageBase64, "base64");
@@ -51,6 +57,7 @@ async function uploadImageToDrive(
   const res = await drive.files.create({
     requestBody: {
       name: fileName,
+      parents: [folderId],
     },
     media: {
       mimeType: "image/jpeg",
@@ -110,11 +117,12 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
   let imageLink = "";
   if (payload.imageBase64) {
     try {
-      imageLink = await uploadImageToDrive(
+      const link = await uploadImageToDrive(
         auth,
         payload.imageBase64,
         payload.imageFileName || "photo.jpg"
       );
+      if (link) imageLink = link;
     } catch (e) {
       console.error("[Drive] 画像アップロードエラー:", e);
     }
