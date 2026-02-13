@@ -58,13 +58,13 @@ async function uploadImageToDrive(
     requestBody: {
       name: fileName,
       parents: [folderId],
-      writersCanShare: true,
     },
     media: {
       mimeType: "image/jpeg",
       body: stream,
     },
     fields: "id",
+    supportsAllDrives: true,
   });
 
   const fileId = res.data.id!;
