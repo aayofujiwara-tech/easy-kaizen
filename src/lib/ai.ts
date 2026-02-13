@@ -42,6 +42,10 @@ function buildUserMessage(emotion: string, text: string): string {
   return `【感情ラベル】${label}\n【報告内容】${text}`;
 }
 
+function isValidApiKey(key: string | undefined): key is string {
+  return !!key && !key.startsWith("your_") && key.length > 10;
+}
+
 export async function analyzeWithAi(
   emotion: string,
   text: string
@@ -49,9 +53,9 @@ export async function analyzeWithAi(
   const geminiKey = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
 
-  if (geminiKey) {
+  if (isValidApiKey(geminiKey)) {
     return analyzeWithGemini(geminiKey, emotion, text);
-  } else if (openaiKey) {
+  } else if (isValidApiKey(openaiKey)) {
     return analyzeWithOpenAi(openaiKey, emotion, text);
   } else {
     // フォールバック: APIキーがない場合のデフォルト処理
@@ -64,42 +68,47 @@ async function analyzeWithGemini(
   emotion: string,
   text: string
 ): Promise<AiResult> {
-  const userMessage = buildUserMessage(emotion, text);
+  try {
+    const userMessage = buildUserMessage(emotion, text);
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `${SYSTEM_PROMPT}\n\n${userMessage}` },
-            ],
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: `${SYSTEM_PROMPT}\n\n${userMessage}` },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            responseMimeType: "application/json",
           },
-        ],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: "application/json",
-        },
-      }),
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Gemini API error:", errText);
+      return generateFallbackResult(emotion, text);
     }
-  );
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("Gemini API error:", errText);
+    const data = await res.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!content) {
+      return generateFallbackResult(emotion, text);
+    }
+
+    return JSON.parse(content) as AiResult;
+  } catch (error) {
+    console.error("Gemini fetch error:", error);
     return generateFallbackResult(emotion, text);
   }
-
-  const data = await res.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!content) {
-    return generateFallbackResult(emotion, text);
-  }
-
-  return JSON.parse(content) as AiResult;
 }
 
 async function analyzeWithOpenAi(
@@ -107,38 +116,43 @@ async function analyzeWithOpenAi(
   emotion: string,
   text: string
 ): Promise<AiResult> {
-  const userMessage = buildUserMessage(emotion, text);
+  try {
+    const userMessage = buildUserMessage(emotion, text);
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-    }),
-  });
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userMessage },
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+      }),
+    });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("OpenAI API error:", errText);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("OpenAI API error:", errText);
+      return generateFallbackResult(emotion, text);
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      return generateFallbackResult(emotion, text);
+    }
+
+    return JSON.parse(content) as AiResult;
+  } catch (error) {
+    console.error("OpenAI fetch error:", error);
     return generateFallbackResult(emotion, text);
   }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    return generateFallbackResult(emotion, text);
-  }
-
-  return JSON.parse(content) as AiResult;
 }
 
 function generateFallbackResult(emotion: string, text: string): AiResult {

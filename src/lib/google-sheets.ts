@@ -20,9 +20,16 @@ export async function appendToSheet(row: SheetRow): Promise<void> {
   const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const privateKey = process.env.GOOGLE_PRIVATE_KEY;
 
-  if (!spreadsheetId || !clientEmail || !privateKey) {
+  if (
+    !spreadsheetId ||
+    spreadsheetId.startsWith("your_") ||
+    !clientEmail ||
+    clientEmail.startsWith("your-") ||
+    !privateKey ||
+    privateKey.includes("YOUR_KEY_HERE")
+  ) {
     console.warn(
-      "[Google Sheets] 環境変数が未設定のためスキップ: GOOGLE_SPREADSHEET_ID, GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY"
+      "[Google Sheets] 環境変数が未設定または初期値のためスキップ"
     );
     return;
   }
