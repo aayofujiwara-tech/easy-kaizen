@@ -53,13 +53,19 @@ export async function POST(req: NextRequest) {
       priority: aiResult.priority,
     };
 
-    appendToSheet(backgroundPayload).catch((err) =>
-      console.error("[Google Sheets] 書き込みエラー:", err)
-    );
+    appendToSheet(backgroundPayload).catch((err) => {
+      console.error("[Google Sheets] 書き込みエラー:", err);
+      if (err instanceof Error) {
+        console.error("[Google Sheets] スタックトレース:", err.stack);
+      }
+    });
 
-    sendNotificationEmail(backgroundPayload).catch((err) =>
-      console.error("[Email] 送信エラー:", err)
-    );
+    sendNotificationEmail(backgroundPayload).catch((err) => {
+      console.error("[Email] 送信エラー:", err);
+      if (err instanceof Error) {
+        console.error("[Email] スタックトレース:", err.stack);
+      }
+    });
 
     return NextResponse.json({
       id,

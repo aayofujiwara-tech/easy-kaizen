@@ -1,5 +1,7 @@
 import nodemailer from "nodemailer";
 
+const FALLBACK_TO_EMAIL = "fujiwara@aska-g.com";
+
 const EMOTION_LABELS: Record<string, string> = {
   red: "いかり（問題点）",
   yellow: "ひらめき（アイデア）",
@@ -21,12 +23,10 @@ export async function sendNotificationEmail(
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
   const fromAddress = process.env.NOTIFY_FROM_EMAIL;
-  const toAddress = process.env.NOTIFY_TO_EMAIL;
+  const toAddress = process.env.NOTIFY_TO_EMAIL || FALLBACK_TO_EMAIL;
 
-  if (!smtpHost || !toAddress) {
-    console.warn(
-      "[Email] 環境変数が未設定のためスキップ: SMTP_HOST, NOTIFY_TO_EMAIL"
-    );
+  if (!smtpHost) {
+    console.warn("[Email] SMTP_HOST が未設定のためスキップ");
     return;
   }
 
@@ -59,10 +59,14 @@ export async function sendNotificationEmail(
     "Easy Kaizen 改善報告システム",
   ].join("\n");
 
+  console.log(`[Email] 通知メールを ${toAddress} へ送信します...`);
+
   await transporter.sendMail({
     from: fromAddress || `"Easy Kaizen" <noreply@example.com>`,
     to: toAddress,
     subject,
     text: body,
   });
+
+  console.log(`[Email] 送信完了: ${toAddress}`);
 }
