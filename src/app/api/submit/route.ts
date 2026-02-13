@@ -24,20 +24,25 @@ export async function POST(req: NextRequest) {
     const id = uuidv4();
     let imagePath: string | null = null;
 
-    // 画像を保存
+    // 画像を保存（Vercelではファイルシステム書き込み不可のためスキップ可）
     if (imageFile && imageFile.size > 0) {
-      const uploadsDir = path.join(process.cwd(), "public", "uploads");
-      await mkdir(uploadsDir, { recursive: true });
+      try {
+        const uploadsDir = path.join(process.cwd(), "public", "uploads");
+        await mkdir(uploadsDir, { recursive: true });
 
-      const ext = imageFile.name.split(".").pop() || "jpg";
-      const fileName = `${id}.${ext}`;
-      imagePath = `/uploads/${fileName}`;
+        const ext = imageFile.name.split(".").pop() || "jpg";
+        const fileName = `${id}.${ext}`;
+        imagePath = `/uploads/${fileName}`;
 
-      const bytes = await imageFile.arrayBuffer();
-      await writeFile(path.join(uploadsDir, fileName), Buffer.from(bytes));
+        const bytes = await imageFile.arrayBuffer();
+        await writeFile(path.join(uploadsDir, fileName), Buffer.from(bytes));
+      } catch (e) {
+        console.warn("[Image] 画像保存をスキップ:", e);
+        imagePath = null;
+      }
     }
 
-    // DBに保存
+    // DBに保存（better-sqlite3が使えない環境ではスキップ）
     insertReport({ id, emotion, raw_text: text, image_path: imagePath });
 
     // AI分析（フィードバックを返すため同期で待つ）
@@ -75,7 +80,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("Submit error:", error);
     return NextResponse.json(
-      { error: "サーバーエラーが おきました" },
+      { error: "送信に失敗しました", detail: String(error) },
       { status: 500 }
     );
   }

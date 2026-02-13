@@ -1,34 +1,48 @@
-import Database from "better-sqlite3";
 import path from "path";
+import type BetterSqlite3 from "better-sqlite3";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Database: any = null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  Database = require("better-sqlite3");
+} catch {
+  console.warn(
+    "[DB] better-sqlite3 を読み込めません（Vercel等のサーバーレス環境では正常です）"
+  );
+}
 
 const DB_PATH = path.join(process.cwd(), "kaizen.db");
 
-let db: Database.Database | null = null;
+let db: BetterSqlite3.Database | null = null;
 
-export function getDb(): Database.Database {
+function getDb(): BetterSqlite3.Database | null {
+  if (!Database) return null;
   if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma("journal_mode = WAL");
-    initializeDb(db);
+    try {
+      db = new Database(DB_PATH) as BetterSqlite3.Database;
+      db.pragma("journal_mode = WAL");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS reports (
+          id TEXT PRIMARY KEY,
+          emotion TEXT NOT NULL,
+          raw_text TEXT NOT NULL,
+          image_path TEXT,
+          summary TEXT,
+          category TEXT,
+          priority INTEGER,
+          feedback_to_user TEXT,
+          created_at TEXT DEFAULT (datetime('now', 'localtime')),
+          status TEXT DEFAULT 'new'
+        );
+      `);
+    } catch (e) {
+      console.error("[DB] 初期化エラー:", e);
+      return null;
+    }
   }
   return db;
-}
-
-function initializeDb(db: Database.Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS reports (
-      id TEXT PRIMARY KEY,
-      emotion TEXT NOT NULL,
-      raw_text TEXT NOT NULL,
-      image_path TEXT,
-      summary TEXT,
-      category TEXT,
-      priority INTEGER,
-      feedback_to_user TEXT,
-      created_at TEXT DEFAULT (datetime('now', 'localtime')),
-      status TEXT DEFAULT 'new'
-    );
-  `);
 }
 
 export interface Report {
@@ -50,8 +64,12 @@ export function insertReport(report: {
   raw_text: string;
   image_path: string | null;
 }): void {
-  const db = getDb();
-  const stmt = db.prepare(`
+  const conn = getDb();
+  if (!conn) {
+    console.warn("[DB] DB未接続のため insertReport をスキップ");
+    return;
+  }
+  const stmt = conn.prepare(`
     INSERT INTO reports (id, emotion, raw_text, image_path)
     VALUES (?, ?, ?, ?)
   `);
@@ -67,8 +85,12 @@ export function updateReportAiResult(
     feedback_to_user: string;
   }
 ): void {
-  const db = getDb();
-  const stmt = db.prepare(`
+  const conn = getDb();
+  if (!conn) {
+    console.warn("[DB] DB未接続のため updateReportAiResult をスキップ");
+    return;
+  }
+  const stmt = conn.prepare(`
     UPDATE reports
     SET summary = ?, category = ?, priority = ?, feedback_to_user = ?
     WHERE id = ?
@@ -83,15 +105,20 @@ export function updateReportAiResult(
 }
 
 export function getAllReports(): Report[] {
-  const db = getDb();
-  return db
+  const conn = getDb();
+  if (!conn) {
+    console.warn("[DB] DB未接続のため getAllReports は空配列を返します");
+    return [];
+  }
+  return conn
     .prepare("SELECT * FROM reports ORDER BY created_at DESC")
     .all() as Report[];
 }
 
 export function getReportById(id: string): Report | undefined {
-  const db = getDb();
-  return db.prepare("SELECT * FROM reports WHERE id = ?").get(id) as
+  const conn = getDb();
+  if (!conn) return undefined;
+  return conn.prepare("SELECT * FROM reports WHERE id = ?").get(id) as
     | Report
     | undefined;
 }
