@@ -4,6 +4,8 @@ import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { insertReport, updateReportAiResult } from "@/db/database";
 import { analyzeWithAi } from "@/lib/ai";
+import { appendToSheet } from "@/lib/google-sheets";
+import { sendNotificationEmail } from "@/lib/notify-email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,9 +40,26 @@ export async function POST(req: NextRequest) {
     // DBに保存
     insertReport({ id, emotion, raw_text: text, image_path: imagePath });
 
-    // AI分析（非同期でも可だが、フィードバックを返すため同期）
+    // AI分析（フィードバックを返すため同期で待つ）
     const aiResult = await analyzeWithAi(emotion, text);
     updateReportAiResult(id, aiResult);
+
+    // Google Sheets保存 + メール通知（fire-and-forget: ユーザーを待たせない）
+    const backgroundPayload = {
+      emotion,
+      rawText: text,
+      imagePath: imagePath,
+      summary: aiResult.summary,
+      priority: aiResult.priority,
+    };
+
+    appendToSheet(backgroundPayload).catch((err) =>
+      console.error("[Google Sheets] 書き込みエラー:", err)
+    );
+
+    sendNotificationEmail(backgroundPayload).catch((err) =>
+      console.error("[Email] 送信エラー:", err)
+    );
 
     return NextResponse.json({
       id,
