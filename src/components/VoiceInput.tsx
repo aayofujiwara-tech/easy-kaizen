@@ -36,7 +36,7 @@ export default function VoiceInput({ onTranscript }: Props) {
     const recognition = new SpeechRecognition();
     recognition.lang = "ja-JP";
     recognition.interimResults = false; // final のみ受け取る（安定性向上）
-    recognition.continuous = false;     // 1発話ごとに区切る（PC Chrome で安定）
+    recognition.continuous = true;      // 「とめる」を押すまで聞き続ける
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let transcript = "";
