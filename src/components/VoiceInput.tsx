@@ -50,7 +50,7 @@ export default function VoiceInput({ onTranscript }: Props) {
       }
     };
 
-    recognition.onerror = (event) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error("[Voice] エラー:", event.error, event.message);
       // ユーザーに分かる形でステータス表示
       switch (event.error) {
