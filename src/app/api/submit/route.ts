@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 import { insertReport, updateReportAiResult } from "@/db/database";
 import { analyzeWithAi } from "@/lib/ai";
 import { appendToSheet } from "@/lib/google-sheets";
@@ -22,26 +20,20 @@ export async function POST(req: NextRequest) {
     }
 
     const id = uuidv4();
-    let imagePath: string | null = null;
+    let imageBase64: string | null = null;
+    let imageFileName: string | null = null;
 
     if (imageFile && imageFile.size > 0) {
       try {
-        const uploadsDir = path.join(process.cwd(), "public", "uploads");
-        await mkdir(uploadsDir, { recursive: true });
-
-        const ext = imageFile.name.split(".").pop() || "jpg";
-        const fileName = `${id}.${ext}`;
-        imagePath = `/uploads/${fileName}`;
-
         const bytes = await imageFile.arrayBuffer();
-        await writeFile(path.join(uploadsDir, fileName), Buffer.from(bytes));
+        imageBase64 = Buffer.from(bytes).toString("base64");
+        imageFileName = imageFile.name || "photo.jpg";
       } catch (e) {
-        console.warn("[Image] 画像保存をスキップ:", e);
-        imagePath = null;
+        console.warn("[Image] 画像のBase64変換をスキップ:", e);
       }
     }
 
-    insertReport({ id, emotion, raw_text: text, image_path: imagePath });
+    insertReport({ id, emotion, raw_text: text, image_path: null });
 
     const aiResult = await analyzeWithAi(emotion, text);
     updateReportAiResult(id, aiResult);
@@ -49,7 +41,9 @@ export async function POST(req: NextRequest) {
     const backgroundPayload = {
       emotion,
       rawText: text,
-      imagePath: imagePath,
+      imagePath: null as string | null,
+      imageBase64,
+      imageFileName,
       summary: aiResult.summary,
       priority: aiResult.priority,
     };

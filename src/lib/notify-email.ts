@@ -11,7 +11,8 @@ const EMOTION_LABELS: Record<string, string> = {
 interface NotifyPayload {
   emotion: string;
   rawText: string;
-  imagePath: string | null;
+  imageBase64?: string | null;
+  imageFileName?: string | null;
   summary: string;
 }
 
@@ -43,25 +44,48 @@ export async function sendNotificationEmail(
   });
 
   const emotionLabel = EMOTION_LABELS[payload.emotion] || payload.emotion;
-
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
-  const imageUrl = payload.imagePath
-    ? `${baseUrl}${payload.imagePath}`
-    : "なし";
+  const hasImage = !!payload.imageBase64;
+  const imageStatus = hasImage ? "添付あり" : "なし";
 
   const subject = `【改善報告】${emotionLabel} 現場から新しい声が届きました`;
 
-  const body = [
+  const textBody = [
     "現場から改善報告が届きました。",
     "",
     `■ 感情：${emotionLabel}`,
     `■ 内容：${payload.rawText}`,
     `■ AIの要約：${payload.summary}`,
-    `■ 写真リンク：${imageUrl}`,
+    `■ 写真：${imageStatus}`,
     "",
     "---",
     "Easy Kaizen 改善報告システム",
   ].join("\n");
+
+  const imageHtml = hasImage
+    ? `<p><strong>■ 写真：</strong><br/><img src="cid:reportImage" style="max-width:480px;" /></p>`
+    : `<p><strong>■ 写真：</strong>なし</p>`;
+
+  const htmlBody = `
+    <div style="font-family: sans-serif; line-height: 1.6;">
+      <p>現場から改善報告が届きました。</p>
+      <p><strong>■ 感情：</strong>${emotionLabel}</p>
+      <p><strong>■ 内容：</strong>${payload.rawText}</p>
+      <p><strong>■ AIの要約：</strong>${payload.summary}</p>
+      ${imageHtml}
+      <hr />
+      <p style="color: #888;">Easy Kaizen 改善報告システム</p>
+    </div>
+  `;
+
+  const attachments = hasImage
+    ? [
+        {
+          filename: payload.imageFileName || "photo.jpg",
+          content: Buffer.from(payload.imageBase64!, "base64"),
+          cid: "reportImage",
+        },
+      ]
+    : [];
 
   console.log(`[Email] 通知メールを ${toAddress} へ送信します...`);
 
@@ -69,7 +93,9 @@ export async function sendNotificationEmail(
     from: fromAddress || `"Easy Kaizen" <noreply@example.com>`,
     to: toAddress,
     subject,
-    text: body,
+    text: textBody,
+    html: htmlBody,
+    attachments,
   });
 
   console.log(`[Email] 送信完了: ${toAddress}`);
