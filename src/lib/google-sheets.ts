@@ -28,7 +28,7 @@ function getAuth() {
 
   return new google.auth.JWT({
     email: clientEmail,
-    key: privateKey.replace(/\\n/g, "\n"),
+    key: privateKey.includes("\\n") ? privateKey.replace(/\\n/g, "\n") : privateKey,
     scopes: [
       "https://www.googleapis.com/auth/spreadsheets",
       "https://www.googleapis.com/auth/drive",
@@ -68,6 +68,7 @@ async function uploadImageToDrive(
   });
 
   const fileId = res.data.id!;
+  console.log("[Drive] アップロード成功 fileId:", fileId);
 
   try {
     await drive.permissions.create({
@@ -78,8 +79,8 @@ async function uploadImageToDrive(
         role: "reader",
       },
     });
-  } catch (permErr) {
-    console.warn("[Drive] 権限設定をスキップ（フォルダの共有設定で代替可）:", permErr);
+  } catch (permErr: any) {
+    console.warn("[Drive] 権限設定エラー:", permErr?.message || permErr, "fileId:", fileId);
   }
 
   return `https://drive.google.com/file/d/${fileId}/view`;
