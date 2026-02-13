@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import type { Report } from "@/db/database";
 
 const emotionEmoji: Record<string, string> = {
-  red: "🔴",
-  yellow: "🟡",
-  blue: "🔵",
+  red: "💢",
+  yellow: "💡",
+  blue: "👍",
 };
 
 const emotionLabel: Record<string, string> = {
@@ -66,21 +66,21 @@ export default function DashboardPage() {
       {/* 統計 */}
       <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-          <div className="text-3xl mb-1">🔴</div>
+          <div className="text-3xl mb-1">💢</div>
           <div className="text-2xl font-bold text-red-600">
             {reports.filter((r) => r.emotion === "red").length}
           </div>
           <div className="text-xs text-red-500">もんだいてん</div>
         </div>
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
-          <div className="text-3xl mb-1">🟡</div>
+          <div className="text-3xl mb-1">💡</div>
           <div className="text-2xl font-bold text-yellow-600">
             {reports.filter((r) => r.emotion === "yellow").length}
           </div>
           <div className="text-xs text-yellow-500">ていあん</div>
         </div>
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
-          <div className="text-3xl mb-1">🔵</div>
+          <div className="text-3xl mb-1">👍</div>
           <div className="text-2xl font-bold text-blue-600">
             {reports.filter((r) => r.emotion === "blue").length}
           </div>
@@ -92,9 +92,9 @@ export default function DashboardPage() {
       <div className="flex gap-2 mb-4 overflow-x-auto">
         {[
           { id: "all", label: "ぜんぶ" },
-          { id: "red", label: "🔴 イラッ" },
-          { id: "yellow", label: "🟡 ていあん" },
-          { id: "blue", label: "🔵 ナイス" },
+          { id: "red", label: "💢 イラッ" },
+          { id: "yellow", label: "💡 ていあん" },
+          { id: "blue", label: "👍 ナイス" },
         ].map((f) => (
           <button
             key={f.id}

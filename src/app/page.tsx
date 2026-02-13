@@ -104,22 +104,17 @@ export default function Home() {
         <h2 className="text-base font-bold text-gray-700 mb-3">
           ② くわしく おしえてね
         </h2>
-        <VoiceInput onTranscript={handleVoiceTranscript} />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="ここに かいてね... おんせいでも OK！"
           rows={4}
-          className="w-full mt-3 p-4 rounded-xl border-2 border-gray-200 text-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-200 outline-none resize-none transition"
+          className="w-full p-4 rounded-xl border-2 border-gray-200 text-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-200 outline-none resize-none transition"
         />
-      </section>
-
-      {/* ステップ3: 画像添付 */}
-      <section className="mb-6">
-        <h2 className="text-base font-bold text-gray-700 mb-3">
-          ③ しゃしん（あれば）
-        </h2>
-        <ImageUpload onImageSelect={setImage} />
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <VoiceInput onTranscript={handleVoiceTranscript} />
+          <ImageUpload onImageSelect={setImage} />
+        </div>
       </section>
 
       {/* エラー表示 */}

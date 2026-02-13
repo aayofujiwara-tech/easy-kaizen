@@ -77,27 +77,16 @@ export default function VoiceInput({ onTranscript }: Props) {
     <button
       type="button"
       onClick={isRecording ? stopRecording : startRecording}
-      className={`w-full flex items-center justify-center gap-3 py-4 rounded-xl text-lg font-bold transition-all ${
+      className={`w-full flex flex-col items-center justify-center gap-1 py-4 rounded-2xl text-base font-bold transition-all ${
         isRecording
-          ? "bg-red-500 text-white mic-recording"
-          : "bg-gray-100 text-gray-700 hover:bg-gray-200 border-2 border-dashed border-gray-300"
+          ? "bg-red-500 text-white mic-recording shadow-lg shadow-red-200"
+          : "bg-orange-50 text-orange-700 hover:bg-orange-100 border-2 border-orange-200"
       }`}
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="h-7 w-7"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-        />
-      </svg>
-      {isRecording ? "きろくちゅう... タップで とめる" : "🎤 おんせい にゅうりょく"}
+      <span className="text-3xl" role="img" aria-label="マイク">🎤</span>
+      <span className="text-sm">
+        {isRecording ? "とめる" : "おんせい"}
+      </span>
     </button>
   );
 }

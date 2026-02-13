@@ -16,13 +16,12 @@ body {
 
 /* 大きなタップターゲット */
 .emotion-btn {
-  @apply flex flex-col items-center justify-center rounded-2xl p-4 transition-all duration-200 active:scale-95;
-  min-height: 100px;
-  min-width: 100px;
+  @apply flex flex-col items-center justify-center rounded-2xl p-5 transition-all duration-200 active:scale-95;
+  min-height: 120px;
 }
 
 .emotion-btn.selected {
-  @apply ring-4 ring-offset-2 scale-105;
+  @apply ring-4 ring-offset-2 scale-105 shadow-md;
 }
 
 /* マイクボタンのパルスアニメーション */
