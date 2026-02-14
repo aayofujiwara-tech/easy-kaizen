@@ -12,7 +12,7 @@ const EMOTION_LABELS: Record<string, string> = {
 // 2. 投稿内容（テキスト、画像、感情、AI解析結果）
 // 3. 名前（ユーザーが自ら入力した場合のみ。未入力時は「匿名」）
 // 4. 投稿日（日付のみ。時刻は含めない — 少人数拠点での個人推測を防止）
-const HEADERS = ["投稿日", "拠点名", "名前", "感情", "内容", "AI要約", "画像リンク"];
+const HEADERS = ["投稿日", "拠点名", "名前", "感情", "優先度", "内容", "AI要約", "画像リンク"];
 
 interface SheetPayload {
   emotion: string;
@@ -105,13 +105,13 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
   // ヘッダー確認・追加
   const headerRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "Sheet1!A1:G1",
+    range: "Sheet1!A1:H1",
   });
 
   if (!headerRes.data.values || headerRes.data.values.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: "Sheet1!A1:G1",
+      range: "Sheet1!A1:H1",
       valueInputOption: "RAW",
       requestBody: {
         values: [HEADERS],
@@ -147,7 +147,7 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "Sheet1!A:G",
+    range: "Sheet1!A:H",
     valueInputOption: "RAW",
     requestBody: {
       values: [
@@ -156,6 +156,7 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
           payload.baseName || "",
           displayName,
           emotionLabel,
+          payload.priority,
           payload.rawText,
           payload.summary,
           imageLink,
