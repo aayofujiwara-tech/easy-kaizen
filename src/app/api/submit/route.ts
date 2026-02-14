@@ -43,6 +43,23 @@ function validateImageMagicBytes(buffer: Buffer, claimedType: string): boolean {
 
 export async function POST(req: NextRequest) {
   try {
+    // CSRF対策: Origin/Refererヘッダーが自サイトと一致することを検証
+    const origin = req.headers.get("origin");
+    const referer = req.headers.get("referer");
+    const host = req.headers.get("host");
+    if (host) {
+      const allowedOrigin = `https://${host}`;
+      const allowedOriginHttp = `http://${host}`;
+      const originOk = origin === allowedOrigin || origin === allowedOriginHttp;
+      const refererOk = referer?.startsWith(allowedOrigin) || referer?.startsWith(allowedOriginHttp);
+      if (!originOk && !refererOk) {
+        return NextResponse.json(
+          { error: "ふせいな リクエストです" },
+          { status: 403 }
+        );
+      }
+    }
+
     // 匿名性担保: IPアドレスはレートリミット判定のみに使用し、ハッシュ化される（rate-limit.ts参照）
     // DB・ログ・通知には一切記録しない
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
