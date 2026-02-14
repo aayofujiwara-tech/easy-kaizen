@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import type { Report } from "@/db/database";
 import { BASES, getBaseLabel } from "@/lib/bases";
 
@@ -41,37 +41,101 @@ export default function DashboardPage() {
 
 function DashboardContent() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token");
+  const router = useRouter();
+  const tokenFromUrl = searchParams.get("token");
 
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState(false);
+  const [needsLogin, setNeedsLogin] = useState(false);
+  const [loginToken, setLoginToken] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [emotionFilter, setEmotionFilter] = useState<string>("all");
   const [baseFilter, setBaseFilter] = useState<string>("all");
 
-  useEffect(() => {
-    if (!token) {
-      setAuthError(true);
+  const fetchReports = useCallback(async () => {
+    try {
+      const res = await fetch("/api/reports");
+      if (res.status === 401 || res.status === 503) {
+        setNeedsLogin(true);
+        setLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setReports(data.reports || []);
+      setNeedsLogin(false);
       setLoading(false);
+    } catch {
+      setLoading(false);
+    }
+  }, []);
+
+  // URLトークンがある場合は自動ログインしてURLからトークンを消去
+  useEffect(() => {
+    if (tokenFromUrl) {
+      fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: tokenFromUrl }),
+      })
+        .then((res) => {
+          if (res.ok) {
+            // ログイン成功: URLからトークンを消去（ブラウザ履歴にトークンを残さない）
+            router.replace("/dashboard");
+            fetchReports();
+          } else {
+            setNeedsLogin(true);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          setNeedsLogin(true);
+          setLoading(false);
+        });
+    } else {
+      // Cookie認証を試みる
+      fetchReports();
+    }
+  }, [tokenFromUrl, router, fetchReports]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginToken.trim()) {
+      setLoginError("トークンを いれてね");
       return;
     }
-    fetch(`/api/reports?token=${encodeURIComponent(token)}`)
-      .then((res) => {
-        if (res.status === 401 || res.status === 503) {
-          setAuthError(true);
-          setLoading(false);
-          return null;
-        }
-        return res.json();
-      })
-      .then((data) => {
-        if (data) {
-          setReports(data.reports || []);
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [token]);
+
+    setLoginError("");
+    setLoginLoading(true);
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: loginToken }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setLoginError(data.error || "ログインに しっぱい しました");
+        setLoginLoading(false);
+        return;
+      }
+
+      // ログイン成功: Cookie設定済み → レポートを取得
+      setLoginToken("");
+      await fetchReports();
+    } catch {
+      setLoginError("つうしんエラー。もういちど ためしてね");
+    }
+    setLoginLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setReports([]);
+    setNeedsLogin(true);
+  };
 
   const filteredReports = reports.filter((r) => {
     const emotionMatch = emotionFilter === "all" || r.emotion === emotionFilter;
@@ -87,16 +151,43 @@ function DashboardContent() {
     );
   }
 
-  if (authError) {
+  // ログイン画面
+  if (needsLogin) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center px-4">
         <div className="text-4xl mb-4">🔒</div>
         <h1 className="text-xl font-bold text-gray-700 mb-2">
-          アクセスけんが ひつようです
+          ダッシュボード ログイン
         </h1>
-        <p className="text-sm text-gray-500">
-          かんりしゃから おしえてもらった URL を つかってね
+        <p className="text-sm text-gray-500 mb-6">
+          かんりしゃから おしえてもらった トークンを いれてね
         </p>
+        <form onSubmit={handleLogin} className="w-full max-w-xs">
+          <input
+            type="password"
+            value={loginToken}
+            onChange={(e) => setLoginToken(e.target.value)}
+            placeholder="トークンを にゅうりょく"
+            className="w-full p-3 rounded-xl border-2 border-gray-200 text-base text-center focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 outline-none transition mb-3"
+            autoFocus
+          />
+          {loginError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl p-2 mb-3 text-sm font-bold">
+              {loginError}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={loginLoading}
+            className={`w-full py-3 rounded-xl text-base font-bold text-white transition ${
+              loginLoading
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-indigo-600 hover:bg-indigo-700"
+            }`}
+          >
+            {loginLoading ? "ログインちゅう..." : "ログイン"}
+          </button>
+        </form>
       </div>
     );
   }
@@ -107,12 +198,20 @@ function DashboardContent() {
         <h1 className="text-2xl font-bold text-gray-800">
           📊 かいぜん ダッシュボード
         </h1>
-        <a
-          href="/"
-          className="text-blue-500 hover:text-blue-600 text-sm font-medium"
-        >
-          ＋ あたらしい ほうこく
-        </a>
+        <div className="flex items-center gap-3">
+          <a
+            href="/"
+            className="text-blue-500 hover:text-blue-600 text-sm font-medium"
+          >
+            ＋ あたらしい ほうこく
+          </a>
+          <button
+            onClick={handleLogout}
+            className="text-gray-400 hover:text-gray-600 text-xs"
+          >
+            ログアウト
+          </button>
+        </div>
       </div>
 
       {/* 統計 */}
@@ -247,6 +346,7 @@ function DashboardContent() {
                 <img
                   src={report.image_path}
                   alt="添付画像"
+                  loading="lazy"
                   className="w-full max-h-40 object-cover rounded-lg mb-2"
                 />
               )}

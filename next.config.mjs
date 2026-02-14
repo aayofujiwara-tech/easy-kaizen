@@ -16,7 +16,21 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           {
             key: "Content-Security-Policy",
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline'",      // Next.jsハイドレーションに必要。unsafe-evalは除去
+              "style-src 'self' 'unsafe-inline'",        // Tailwind CSS に必要
+              "img-src 'self' data: blob:",
+              "font-src 'self'",
+              "connect-src 'self'",
+              "frame-ancestors 'none'",                  // クリックジャッキング防止（X-Frame-Optionsを補強）
+              "base-uri 'self'",                         // <base>タグ乗っ取り防止
+              "form-action 'self'",                      // フォーム送信先を自サイトに限定
+            ].join("; "),
+          },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(self), geolocation=()",  // GPS取得を禁止
           },
         ],
       },

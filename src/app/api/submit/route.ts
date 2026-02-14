@@ -13,6 +13,21 @@ const MAX_TEXT_LENGTH = 2000;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+// 画像ファイルのマジックバイト検証（MIMEタイプ偽装対策）
+const IMAGE_MAGIC_BYTES: { type: string; bytes: number[] }[] = [
+  { type: "image/jpeg", bytes: [0xff, 0xd8, 0xff] },
+  { type: "image/png",  bytes: [0x89, 0x50, 0x4e, 0x47] },
+  { type: "image/gif",  bytes: [0x47, 0x49, 0x46, 0x38] },        // GIF87a / GIF89a
+  { type: "image/webp", bytes: [0x52, 0x49, 0x46, 0x46] },        // RIFF header
+];
+
+function validateImageMagicBytes(buffer: Buffer, claimedType: string): boolean {
+  const expected = IMAGE_MAGIC_BYTES.find((m) => m.type === claimedType);
+  if (!expected) return false;
+  if (buffer.length < expected.bytes.length) return false;
+  return expected.bytes.every((b, i) => buffer[i] === b);
+}
+
 /*
  * ===== 匿名性に関する設計方針 =====
  * このAPIは以下の原則に基づき、投稿者の個人特定を不可能にする設計です:
@@ -97,8 +112,18 @@ export async function POST(req: NextRequest) {
 
       try {
         const bytes = await imageFile.arrayBuffer();
+        const rawBuffer = Buffer.from(bytes);
+
+        // セキュリティ: マジックバイト検証（MIMEタイプ偽装を防止）
+        if (!validateImageMagicBytes(rawBuffer, imageFile.type)) {
+          return NextResponse.json(
+            { error: "がぞうファイルが ただしくないよ" },
+            { status: 400 }
+          );
+        }
+
         // プライバシー保護: EXIFデータ（撮影日時・GPS位置情報・端末情報）を完全除去
-        const stripped = stripExifData(Buffer.from(bytes));
+        const stripped = stripExifData(rawBuffer);
         imageBase64 = stripped.toString("base64");
         imageFileName = imageFile.name?.replace(/[^\w.\-]/g, "_") || "photo.jpg";
       } catch (e) {
