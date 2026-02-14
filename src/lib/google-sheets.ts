@@ -63,10 +63,18 @@ async function uploadImageToDrive(
 
   const safeName = fileName.replace(/[^\w.\-]/g, "_");
 
+  // 匿名性担保: ファイルの作成日時・更新日時を当日0:00:00(UTC)に固定し、
+  // 正確なアップロード時刻がDriveのメタデータから推測されることを防止する
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const dateOnlyISO = today.toISOString(); // "2026-02-14T00:00:00.000Z"
+
   const res = await drive.files.create({
     requestBody: {
       name: safeName,
       parents: [folderId],
+      createdTime: dateOnlyISO,
+      modifiedTime: dateOnlyISO,
     },
     media: {
       mimeType: "image/jpeg",
