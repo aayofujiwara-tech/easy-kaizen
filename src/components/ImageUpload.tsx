@@ -54,12 +54,12 @@ export default function ImageUpload({ onImageSelect }: Props) {
           <img
             src={preview}
             alt="プレビュー"
-            className="w-full max-h-48 object-cover rounded-xl"
+            className="w-full max-h-32 sm:max-h-48 object-cover rounded-xl"
           />
           <button
             type="button"
             onClick={handleRemove}
-            className="absolute top-2 right-2 bg-black/60 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm"
+            className="absolute top-2 right-2 bg-black/60 text-white rounded-full w-10 h-10 flex items-center justify-center text-base"
           >
             ✕
           </button>

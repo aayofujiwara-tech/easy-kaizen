@@ -17,7 +17,12 @@ body {
 /* 大きなタップターゲット */
 .emotion-btn {
   @apply flex flex-col items-center justify-center rounded-2xl p-5 transition-all duration-200 active:scale-95;
-  min-height: 120px;
+  min-height: 100px;
+}
+@media (min-width: 640px) {
+  .emotion-btn {
+    min-height: 120px;
+  }
 }
 
 .emotion-btn.selected {

@@ -7,7 +7,7 @@ interface Props {
 
 export default function SuccessScreen({ feedback, onReset }: Props) {
   return (
-    <div className="fade-in-up flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
+    <div className="fade-in-up flex flex-col items-center justify-center py-16 sm:py-24 text-center px-6">
       <div className="text-6xl mb-6">🎉</div>
       <h2 className="text-2xl font-bold text-green-600 mb-4">
         しつちょうに とどけました！

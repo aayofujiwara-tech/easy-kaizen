@@ -50,7 +50,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="max-w-4xl mx-auto p-4">
+    <main className="max-w-2xl md:max-w-4xl mx-auto p-4">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">
           📊 かいぜん ダッシュボード
@@ -64,7 +64,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 統計 */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
           <div className="text-3xl mb-1">💢</div>
           <div className="text-2xl font-bold text-red-600">
@@ -89,7 +89,7 @@ export default function DashboardPage() {
       </div>
 
       {/* フィルタ */}
-      <div className="flex gap-2 mb-4 overflow-x-auto">
+      <div className="flex flex-wrap gap-2 mb-4">
         {[
           { id: "all", label: "ぜんぶ" },
           { id: "red", label: "💢 イラッ" },
@@ -99,7 +99,7 @@ export default function DashboardPage() {
           <button
             key={f.id}
             onClick={() => setFilter(f.id)}
-            className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition ${
+            className={`px-4 py-2 rounded-full text-sm font-bold transition ${
               filter === f.id
                 ? "bg-gray-800 text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -122,8 +122,8 @@ export default function DashboardPage() {
               key={report.id}
               className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm"
             >
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-start justify-between gap-1 mb-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xl">
                     {emotionEmoji[report.emotion] || "⚪"}
                   </span>
