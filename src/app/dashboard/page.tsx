@@ -353,7 +353,9 @@ function DashboardContent() {
 
       {/* 件数 */}
       <div className="text-xs text-gray-400 mb-2">
-        {total}件中 {(page - 1) * 20 + 1}〜{Math.min(page * 20, total)}件を表示
+        {total > 0
+          ? `${total}件中 ${(page - 1) * 20 + 1}〜${Math.min(page * 20, total)}件を表示`
+          : "0件"}
       </div>
 
       {/* レポート一覧 */}

@@ -115,7 +115,12 @@ async function analyzeWithGemini(
     return generateFallbackResult(emotion, text);
   }
 
-  return JSON.parse(content) as AiResult;
+  try {
+    return JSON.parse(content) as AiResult;
+  } catch (e) {
+    console.error("Gemini returned invalid JSON:", e);
+    return generateFallbackResult(emotion, text);
+  }
 }
 
 async function analyzeWithOpenAi(
@@ -154,7 +159,12 @@ async function analyzeWithOpenAi(
     return generateFallbackResult(emotion, text);
   }
 
-  return JSON.parse(content) as AiResult;
+  try {
+    return JSON.parse(content) as AiResult;
+  } catch (e) {
+    console.error("OpenAI returned invalid JSON:", e);
+    return generateFallbackResult(emotion, text);
+  }
 }
 
 function generateFallbackResult(emotion: string, text: string): AiResult {
