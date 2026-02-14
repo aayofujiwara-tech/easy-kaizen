@@ -30,6 +30,7 @@ interface NotifyPayload {
   imageFileName?: string | null;
   summary: string;
   baseName?: string;
+  reporterName?: string;
 }
 
 export async function sendNotificationEmail(
@@ -62,27 +63,41 @@ export async function sendNotificationEmail(
   const emotionLabel = EMOTION_LABELS[payload.emotion] || payload.emotion;
   const emotionSubjectLabel = EMOTION_SUBJECT_LABELS[payload.emotion] || payload.emotion;
   const hasImage = !!payload.imageBase64;
-  const imageStatus = hasImage ? "添付あり" : "なし";
+  const displayName = payload.reporterName || "匿名（とくめい）";
+
+  // 匿名性担保: 日付のみ記録（時刻は含めない）
+  const now = new Date();
+  const dateOnly = now.toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 
   const basePrefix = payload.baseName ? `${payload.baseName}：` : "";
   const subject = `【改善報告】${basePrefix}${emotionSubjectLabel} 現場から新しい声が届きました`;
 
+  // 匿名性担保: 通知項目は4カテゴリのみ（投稿者を推測させる情報は含めない）
+  // 1. 拠点名  2. 投稿内容（感情・テキスト・AI要約・画像）  3. 名前  4. 投稿日（日付のみ）
   const textBody = [
     "現場から改善報告が届きました。",
     "",
+    `■ 投稿日：${dateOnly}`,
     ...(payload.baseName ? [`■ 拠点：${payload.baseName}`] : []),
+    `■ 名前：${displayName}`,
     `■ 感情：${emotionLabel}`,
     `■ 内容：${payload.rawText}`,
     `■ AIの要約：${payload.summary}`,
-    `■ 写真：${imageStatus}`,
+    ...(hasImage ? ["■ 写真：添付あり"] : []),
     "",
     "---",
+    "※この報告は匿名で送信されています。個人情報やデバイス情報は含まれていません。",
     "Easy Kaizen 改善報告システム",
   ].join("\n");
 
   const imageHtml = hasImage
     ? `<p><strong>■ 写真：</strong><br/><img src="cid:reportImage" style="max-width:480px;" /></p>`
-    : `<p><strong>■ 写真：</strong>なし</p>`;
+    : "";
 
   const baseHtml = payload.baseName
     ? `<p><strong>■ 拠点：</strong>${escapeHtml(payload.baseName)}</p>`
@@ -91,12 +106,15 @@ export async function sendNotificationEmail(
   const htmlBody = `
     <div style="font-family: sans-serif; line-height: 1.6;">
       <p>現場から改善報告が届きました。</p>
+      <p><strong>■ 投稿日：</strong>${escapeHtml(dateOnly)}</p>
       ${baseHtml}
+      <p><strong>■ 名前：</strong>${escapeHtml(displayName)}</p>
       <p><strong>■ 感情：</strong>${escapeHtml(emotionLabel)}</p>
       <p><strong>■ 内容：</strong>${escapeHtml(payload.rawText)}</p>
       <p><strong>■ AIの要約：</strong>${escapeHtml(payload.summary)}</p>
       ${imageHtml}
       <hr />
+      <p style="color: #888; font-size: 12px;">※この報告は匿名で送信されています。個人情報やデバイス情報は含まれていません。</p>
       <p style="color: #888;">Easy Kaizen 改善報告システム</p>
     </div>
   `;

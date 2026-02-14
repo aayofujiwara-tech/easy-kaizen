@@ -1,5 +1,14 @@
+import crypto from "crypto";
+
 const windowMs = 60 * 1000; // 1分間
 const maxRequests = 10; // 1分あたり最大10リクエスト
+
+// 匿名性担保: IPアドレスを一方向ハッシュ化し、元のIPを保持しない
+const HASH_SALT = crypto.randomBytes(16).toString("hex");
+
+function anonymizeKey(ip: string): string {
+  return crypto.createHash("sha256").update(HASH_SALT + ip).digest("hex").slice(0, 16);
+}
 
 const requests: Record<string, number[]> = {};
 
@@ -20,8 +29,10 @@ setInterval(() => {
 }, 60 * 1000);
 
 export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: number } {
+  // 匿名性担保: 生のIPアドレスではなくハッシュ値で管理
+  const key = anonymizeKey(ip);
   const now = Date.now();
-  const timestamps = requests[ip] || [];
+  const timestamps = requests[key] || [];
   const valid = timestamps.filter((t: number) => now - t < windowMs);
 
   if (valid.length >= maxRequests) {
@@ -30,6 +41,6 @@ export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: n
   }
 
   valid.push(now);
-  requests[ip] = valid;
+  requests[key] = valid;
   return { allowed: true };
 }

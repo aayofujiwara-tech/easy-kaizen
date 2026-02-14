@@ -226,8 +226,13 @@ function DashboardContent() {
                   )}
                 </div>
                 <span className="text-xs text-gray-400">
-                  {report.created_at}
+                  {report.created_at?.split(" ")[0] || report.created_at}
                 </span>
+              </div>
+
+              {/* 名前: 未入力時は「匿名」と表示 */}
+              <div className="text-xs text-gray-400 mb-1">
+                {report.reporter_name || "匿名（とくめい）"}
               </div>
 
               {report.summary && (

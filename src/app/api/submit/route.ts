@@ -6,14 +6,29 @@ import { appendToSheet } from "@/lib/google-sheets";
 import { sendNotificationEmail } from "@/lib/notify-email";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { BASE_MAP, getBaseLabel } from "@/lib/bases";
+import { stripExifData } from "@/lib/strip-exif";
 
 const ALLOWED_EMOTIONS = ["red", "yellow", "blue"];
 const MAX_TEXT_LENGTH = 2000;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+/*
+ * ===== 匿名性に関する設計方針 =====
+ * このAPIは以下の原則に基づき、投稿者の個人特定を不可能にする設計です:
+ *
+ * 1. IPアドレス: レートリミットにのみ使用。ハッシュ化して一時メモリに保持し、DBには一切保存しない。
+ * 2. User-Agent / Cookie / セッションID: 取得・保存・ログ出力を一切行わない。
+ * 3. 拠点情報(base_id): 「どこを助けるか」を判断するための情報であり、個人を特定するものではない。
+ * 4. タイムスタンプ: 日付のみ（時刻なし）を記録し、少人数拠点での推測を防止。
+ * 5. 画像: EXIFデータ（撮影日時・GPS・端末情報）を完全除去してから保存・送信。
+ * 6. 名前: 任意入力。未入力時は「匿名（とくめい）」として扱う。
+ */
+
 export async function POST(req: NextRequest) {
   try {
+    // 匿名性担保: IPアドレスはレートリミット判定のみに使用し、ハッシュ化される（rate-limit.ts参照）
+    // DB・ログ・通知には一切記録しない
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
     const rateCheck = checkRateLimit(ip);
     if (!rateCheck.allowed) {
@@ -27,7 +42,11 @@ export async function POST(req: NextRequest) {
     const emotion = formData.get("emotion") as string;
     const text = formData.get("text") as string;
     const baseId = (formData.get("base_id") as string) || "";
+    const reporterNameRaw = (formData.get("reporter_name") as string) || "";
     const imageFile = formData.get("image") as File | null;
+
+    // 名前: 入力がない場合は空文字としてDBに保存（表示時に「匿名（とくめい）」として扱う）
+    const reporterName = reporterNameRaw.trim();
 
     if (!emotion || !text?.trim()) {
       return NextResponse.json(
@@ -78,19 +97,23 @@ export async function POST(req: NextRequest) {
 
       try {
         const bytes = await imageFile.arrayBuffer();
-        imageBase64 = Buffer.from(bytes).toString("base64");
+        // プライバシー保護: EXIFデータ（撮影日時・GPS位置情報・端末情報）を完全除去
+        const stripped = stripExifData(Buffer.from(bytes));
+        imageBase64 = stripped.toString("base64");
         imageFileName = imageFile.name?.replace(/[^\w.\-]/g, "_") || "photo.jpg";
       } catch (e) {
-        console.warn("[Image] 画像のBase64変換をスキップ:", e);
+        console.warn("[Image] 画像処理をスキップ:", e);
       }
     }
 
-    insertReport({ id, emotion, raw_text: text, image_path: null, base_id: baseId });
+    insertReport({ id, emotion, raw_text: text, image_path: null, base_id: baseId, reporter_name: reporterName });
 
     const aiResult = await analyzeWithAi(emotion, text);
     updateReportAiResult(id, aiResult);
 
     const baseName = baseId ? getBaseLabel(baseId) : "";
+    // 表示用の名前: 未入力時は「匿名（とくめい）」
+    const displayName = reporterName || "匿名（とくめい）";
 
     const backgroundPayload = {
       emotion,
@@ -102,6 +125,7 @@ export async function POST(req: NextRequest) {
       priority: aiResult.priority,
       baseName,
       category: aiResult.category,
+      reporterName: displayName,
     };
 
     // Vercelサーバーレス環境ではレスポンス後にバックグラウンド処理が実行されないため

@@ -23,6 +23,8 @@ function getDb(): BetterSqlite3.Database | null {
     try {
       db = new Database(DB_PATH) as BetterSqlite3.Database;
       db.pragma("journal_mode = WAL");
+      // 匿名性担保: IPアドレス・User-Agent・Cookie・セッションID等の個人特定情報は一切保存しない
+      // タイムスタンプは日付のみ（時刻なし）で保存し、少人数拠点での個人推測を防止する
       db.exec(`
         CREATE TABLE IF NOT EXISTS reports (
           id TEXT PRIMARY KEY,
@@ -33,15 +35,23 @@ function getDb(): BetterSqlite3.Database | null {
           category TEXT,
           priority INTEGER,
           feedback_to_user TEXT,
-          created_at TEXT DEFAULT (datetime('now', 'localtime')),
+          created_at TEXT DEFAULT (date('now', 'localtime')),
           status TEXT DEFAULT 'new',
-          base_id TEXT DEFAULT ''
+          base_id TEXT DEFAULT '',
+          reporter_name TEXT DEFAULT ''
         );
       `);
 
       // 既存テーブルへの base_id カラム追加（マイグレーション）
       try {
         db.exec(`ALTER TABLE reports ADD COLUMN base_id TEXT DEFAULT ''`);
+      } catch {
+        // カラムが既に存在する場合は無視
+      }
+
+      // 既存テーブルへの reporter_name カラム追加（マイグレーション）
+      try {
+        db.exec(`ALTER TABLE reports ADD COLUMN reporter_name TEXT DEFAULT ''`);
       } catch {
         // カラムが既に存在する場合は無視
       }
@@ -65,6 +75,7 @@ export interface Report {
   created_at: string;
   status: string;
   base_id: string;
+  reporter_name: string;
 }
 
 export function insertReport(report: {
@@ -73,6 +84,7 @@ export function insertReport(report: {
   raw_text: string;
   image_path: string | null;
   base_id: string;
+  reporter_name: string;
 }): void {
   const conn = getDb();
   if (!conn) {
@@ -80,10 +92,10 @@ export function insertReport(report: {
     return;
   }
   const stmt = conn.prepare(`
-    INSERT INTO reports (id, emotion, raw_text, image_path, base_id)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO reports (id, emotion, raw_text, image_path, base_id, reporter_name)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(report.id, report.emotion, report.raw_text, report.image_path, report.base_id);
+  stmt.run(report.id, report.emotion, report.raw_text, report.image_path, report.base_id, report.reporter_name);
 }
 
 export function updateReportAiResult(

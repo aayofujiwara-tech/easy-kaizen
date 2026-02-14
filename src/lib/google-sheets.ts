@@ -7,7 +7,12 @@ const EMOTION_LABELS: Record<string, string> = {
   blue: "グッド（良いこと）",
 };
 
-const HEADERS = ["日時", "拠点名", "感情", "内容", "AI要約", "優先度", "画像リンク"];
+// 匿名性担保: 保存項目は以下の4カテゴリに限定
+// 1. 拠点名（URLパラメータまたは選択値）
+// 2. 投稿内容（テキスト、画像、感情、AI解析結果）
+// 3. 名前（ユーザーが自ら入力した場合のみ。未入力時は「匿名」）
+// 4. 投稿日（日付のみ。時刻は含めない — 少人数拠点での個人推測を防止）
+const HEADERS = ["投稿日", "拠点名", "名前", "感情", "内容", "AI要約", "画像リンク"];
 
 interface SheetPayload {
   emotion: string;
@@ -18,6 +23,7 @@ interface SheetPayload {
   imageBase64?: string | null;
   imageFileName?: string | null;
   baseName?: string;
+  reporterName?: string;
 }
 
 function getAuth() {
@@ -128,9 +134,16 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
     }
   }
 
+  // 匿名性担保: 日付のみ記録（時刻は含めない）
   const now = new Date();
-  const timestamp = now.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+  const dateOnly = now.toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
   const emotionLabel = EMOTION_LABELS[payload.emotion] || payload.emotion;
+  const displayName = payload.reporterName || "匿名（とくめい）";
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -139,12 +152,12 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
     requestBody: {
       values: [
         [
-          timestamp,
+          dateOnly,
           payload.baseName || "",
+          displayName,
           emotionLabel,
           payload.rawText,
           payload.summary,
-          payload.priority,
           imageLink,
         ],
       ],

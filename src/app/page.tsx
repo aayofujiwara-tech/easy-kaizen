@@ -34,6 +34,7 @@ function HomeContent() {
   const [baseId, setBaseId] = useState(validBaseFromUrl);
   const [emotion, setEmotion] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const [reporterName, setReporterName] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [feedback, setFeedback] = useState("");
@@ -68,6 +69,7 @@ function HomeContent() {
       formData.append("emotion", emotion);
       formData.append("text", text);
       formData.append("base_id", baseId);
+      formData.append("reporter_name", reporterName);
       if (image) {
         formData.append("image", image);
       }
@@ -96,6 +98,7 @@ function HomeContent() {
   const handleReset = () => {
     setEmotion(null);
     setText("");
+    setReporterName("");
     setImage(null);
     setSubmitState("idle");
     setFeedback("");
@@ -177,6 +180,23 @@ function HomeContent() {
         </div>
       </section>
 
+      {/* ステップ3: 名前（任意） */}
+      <section className="mb-4">
+        <h2 className="text-base font-bold text-gray-700 mb-2">
+          ③ なまえ（にゅうりょく しなくても OK！）
+        </h2>
+        <input
+          type="text"
+          value={reporterName}
+          onChange={(e) => setReporterName(e.target.value)}
+          placeholder="とくめいで おくれるよ"
+          className="w-full p-3 rounded-xl border-2 border-gray-200 text-base focus:border-blue-400 focus:ring-2 focus:ring-blue-200 outline-none transition"
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          いれなければ「とくめい」で おくられます
+        </p>
+      </section>
+
       {/* エラー表示 */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl p-3 mb-3 text-center font-bold">
@@ -221,6 +241,11 @@ function HomeContent() {
           "✉️ しつちょうに とどける！"
         )}
       </button>
+
+      {/* プライバシー・ステートメント */}
+      <p className="text-xs text-gray-400 text-center mt-3 leading-relaxed">
+        ※この報告は匿名（とくめい）で送られ、あなたの個人情報やデバイス情報が室長に伝わることはありません。
+      </p>
     </main>
   );
 }
