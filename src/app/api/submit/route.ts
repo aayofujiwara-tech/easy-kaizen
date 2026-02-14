@@ -8,6 +8,8 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { BASE_MAP, getBaseLabel } from "@/lib/bases";
 import { stripExifData } from "@/lib/strip-exif";
 
+export const dynamic = "force-dynamic";
+
 const ALLOWED_EMOTIONS = ["red", "yellow", "blue"];
 const MAX_TEXT_LENGTH = 2000;
 const MAX_NAME_LENGTH = 50;

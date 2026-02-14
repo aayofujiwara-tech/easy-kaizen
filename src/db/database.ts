@@ -1,6 +1,27 @@
 import path from "path";
 import type BetterSqlite3 from "better-sqlite3";
 
+/*
+ * ===== SQLite サーバーレス環境の制約 =====
+ *
+ * 重要: Vercel等のサーバーレス環境では以下の制約があります:
+ *
+ * 1. ファイルシステムがエフェメラル（一時的）なため、
+ *    関数インスタンス間でDBファイルが共有されない。
+ *    → 投稿APIと読み取りAPIが別インスタンスで実行されると、データが見えない。
+ *
+ * 2. コールドスタート時にDBが空の状態から始まる。
+ *
+ * 3. /var/task（デプロイディレクトリ）はビルド後は読み取り専用の場合がある。
+ *
+ * 本番運用でデータ永続化が必要な場合は、以下のいずれかへの移行を推奨:
+ *   - Vercel Postgres / Neon / Supabase（PostgreSQL系）
+ *   - Turso / LiteFS（SQLite互換のエッジDB）
+ *   - PlanetScale（MySQL互換）
+ *
+ * 現在はGoogle Sheetsへの書き込みがバックアップとして機能しています。
+ */
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let Database: any = null;
 
@@ -9,7 +30,7 @@ try {
   Database = require("better-sqlite3");
 } catch {
   console.warn(
-    "[DB] better-sqlite3 を読み込めません（Vercel等のサーバーレス環境では正常です）"
+    "[DB] better-sqlite3 を読み込めません — Vercel等のサーバーレス環境ではGoogle Sheetsがデータの永続化先になります"
   );
 }
 

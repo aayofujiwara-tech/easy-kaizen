@@ -108,7 +108,7 @@ function DashboardContent() {
     if (dateTo) params.set("date_to", dateTo);
 
     try {
-      const res = await fetch(`/api/reports?${params.toString()}`);
+      const res = await fetch(`/api/reports?${params.toString()}`, { cache: "no-store" });
       if (res.status === 401 || res.status === 503) {
         setNeedsLogin(true);
         setLoading(false);
@@ -207,7 +207,7 @@ function DashboardContent() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch("/api/reports/stats");
+      const res = await fetch("/api/reports/stats", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setStats(data);

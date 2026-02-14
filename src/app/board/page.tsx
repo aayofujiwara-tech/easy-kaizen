@@ -56,7 +56,7 @@ function BoardContent() {
     if (!baseId) return;
     setLoading(true);
     setError("");
-    fetch(`/api/board?base=${encodeURIComponent(baseId)}`)
+    fetch(`/api/board?base=${encodeURIComponent(baseId)}`, { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error("fetch failed");
         return res.json();

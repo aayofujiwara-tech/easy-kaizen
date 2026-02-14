@@ -61,6 +61,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const result = queryReports({ page, limit, emotion, base_id, status, keyword, date_from, date_to });
+    // DB未接続（サーバーレス環境等）の場合、total=0かつreports=[]が返る
+    // クライアントが原因を把握できるようヒントを付与
+    if (result.total === 0 && result.reports.length === 0) {
+      console.warn("[Reports] 結果0件 — DBが未接続またはデータが空の可能性があります");
+    }
     return NextResponse.json(result);
   } catch (error) {
     console.error("Reports fetch error:", error);

@@ -3,6 +3,8 @@ import { updateReportStatus, getReportById, VALID_STATUSES } from "@/db/database
 import { checkRateLimit } from "@/lib/rate-limit";
 import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
