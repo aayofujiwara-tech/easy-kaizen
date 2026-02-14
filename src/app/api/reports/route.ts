@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllReports } from "@/db/database";
+import { queryReports } from "@/db/database";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { verifySessionToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  // レートリミット: ダッシュボードAPIへのDoS・ブルートフォース対策
+  // レートリミット
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const rateCheck = checkRateLimit(ip);
   if (!rateCheck.allowed) {
@@ -17,19 +17,15 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // 認証
   const expected = process.env.DASHBOARD_TOKEN;
   if (!expected || expected === "change-me-to-a-random-string") {
     console.warn("[Reports] DASHBOARD_TOKEN が未設定です");
-    return NextResponse.json(
-      { error: "サーバーの設定が必要です" },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: "サーバーの設定が必要です" }, { status: 503 });
   }
 
-  // 認証: Cookie（優先） または URLトークン（後方互換）
   let authenticated = false;
 
-  // 1. HttpOnly Cookie による認証（推奨）
   const sessionCookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
   if (sessionCookie) {
     authenticated = verifySessionToken(sessionCookie, expected);
@@ -38,7 +34,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 2. URLトークンによる認証（後方互換 — 初回ログインへのリダイレクト用）
   if (!authenticated) {
     const token = req.nextUrl.searchParams.get("token");
     if (token && token === expected) {
@@ -50,15 +45,23 @@ export async function GET(req: NextRequest) {
 
   if (!authenticated) {
     console.warn("[Reports] 認証失敗: アクセス拒否");
-    return NextResponse.json(
-      { error: "アクセスけんが ありません" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "アクセスけんが ありません" }, { status: 401 });
   }
 
+  // クエリパラメータ
+  const sp = req.nextUrl.searchParams;
+  const page = parseInt(sp.get("page") || "1", 10);
+  const limit = parseInt(sp.get("limit") || "20", 10);
+  const emotion = sp.get("emotion") || undefined;
+  const base_id = sp.get("base_id") || undefined;
+  const status = sp.get("status") || undefined;
+  const keyword = sp.get("keyword") || undefined;
+  const date_from = sp.get("date_from") || undefined;
+  const date_to = sp.get("date_to") || undefined;
+
   try {
-    const reports = getAllReports();
-    return NextResponse.json({ reports });
+    const result = queryReports({ page, limit, emotion, base_id, status, keyword, date_from, date_to });
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Reports fetch error:", error);
     return NextResponse.json(

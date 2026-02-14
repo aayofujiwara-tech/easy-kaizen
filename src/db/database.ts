@@ -126,6 +126,100 @@ export function updateReportAiResult(
   );
 }
 
+// ステータスワークフロー: new → acknowledged → in_progress → resolved
+export const VALID_STATUSES = ["new", "acknowledged", "in_progress", "resolved"] as const;
+export type ReportStatus = (typeof VALID_STATUSES)[number];
+
+export function updateReportStatus(id: string, status: ReportStatus): boolean {
+  const conn = getDb();
+  if (!conn) {
+    console.warn("[DB] DB未接続のため updateReportStatus をスキップ");
+    return false;
+  }
+  const result = conn
+    .prepare("UPDATE reports SET status = ? WHERE id = ?")
+    .run(status, id);
+  return result.changes > 0;
+}
+
+export interface ReportQuery {
+  page?: number;
+  limit?: number;
+  emotion?: string;
+  base_id?: string;
+  status?: string;
+  keyword?: string;
+  date_from?: string; // YYYY-MM-DD
+  date_to?: string;   // YYYY-MM-DD
+}
+
+export interface PaginatedReports {
+  reports: Report[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export function queryReports(query: ReportQuery): PaginatedReports {
+  const conn = getDb();
+  if (!conn) {
+    console.warn("[DB] DB未接続のため queryReports は空を返します");
+    return { reports: [], total: 0, page: 1, limit: 20, totalPages: 0 };
+  }
+
+  const page = Math.max(1, query.page || 1);
+  const limit = Math.min(100, Math.max(1, query.limit || 20));
+
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (query.emotion && query.emotion !== "all") {
+    conditions.push("emotion = ?");
+    params.push(query.emotion);
+  }
+  if (query.base_id && query.base_id !== "all") {
+    conditions.push("base_id = ?");
+    params.push(query.base_id);
+  }
+  if (query.status && query.status !== "all") {
+    conditions.push("status = ?");
+    params.push(query.status);
+  }
+  if (query.keyword) {
+    conditions.push("(raw_text LIKE ? OR summary LIKE ? OR reporter_name LIKE ?)");
+    const like = `%${query.keyword}%`;
+    params.push(like, like, like);
+  }
+  if (query.date_from) {
+    conditions.push("created_at >= ?");
+    params.push(query.date_from);
+  }
+  if (query.date_to) {
+    conditions.push("created_at <= ?");
+    params.push(query.date_to);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const total = (
+    conn.prepare(`SELECT COUNT(*) as count FROM reports ${where}`).get(...params) as { count: number }
+  ).count;
+
+  const offset = (page - 1) * limit;
+  const reports = conn
+    .prepare(`SELECT * FROM reports ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+    .all(...params, limit, offset) as Report[];
+
+  return {
+    reports,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
 export function getAllReports(): Report[] {
   const conn = getDb();
   if (!conn) {
