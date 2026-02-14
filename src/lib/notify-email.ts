@@ -2,6 +2,15 @@ import nodemailer from "nodemailer";
 
 const FALLBACK_TO_EMAIL = "fujiwara@aska-g.com";
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 const EMOTION_LABELS: Record<string, string> = {
   red: "いかり（問題点）",
   yellow: "ひらめき（アイデア）",
@@ -68,9 +77,9 @@ export async function sendNotificationEmail(
   const htmlBody = `
     <div style="font-family: sans-serif; line-height: 1.6;">
       <p>現場から改善報告が届きました。</p>
-      <p><strong>■ 感情：</strong>${emotionLabel}</p>
-      <p><strong>■ 内容：</strong>${payload.rawText}</p>
-      <p><strong>■ AIの要約：</strong>${payload.summary}</p>
+      <p><strong>■ 感情：</strong>${escapeHtml(emotionLabel)}</p>
+      <p><strong>■ 内容：</strong>${escapeHtml(payload.rawText)}</p>
+      <p><strong>■ AIの要約：</strong>${escapeHtml(payload.summary)}</p>
       ${imageHtml}
       <hr />
       <p style="color: #888;">Easy Kaizen 改善報告システム</p>

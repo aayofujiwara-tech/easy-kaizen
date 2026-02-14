@@ -54,9 +54,11 @@ async function uploadImageToDrive(
   stream.push(buffer);
   stream.push(null);
 
+  const safeName = fileName.replace(/[^\w.\-]/g, "_");
+
   const res = await drive.files.create({
     requestBody: {
-      name: fileName,
+      name: safeName,
       parents: [folderId],
     },
     media: {
@@ -70,18 +72,8 @@ async function uploadImageToDrive(
   const fileId = res.data.id!;
   console.log("[Drive] アップロード成功 fileId:", fileId);
 
-  try {
-    await drive.permissions.create({
-      fileId,
-      supportsAllDrives: true,
-      requestBody: {
-        type: "anyone",
-        role: "reader",
-      },
-    });
-  } catch (permErr: any) {
-    console.warn("[Drive] 権限設定エラー:", permErr?.message || permErr, "fileId:", fileId);
-  }
+  // ファイルはDriveフォルダの権限を継承するため、個別の公開設定は行わない
+  // フォルダ側で適切なアクセス権限を設定すること
 
   return `https://drive.google.com/file/d/${fileId}/view`;
 }
