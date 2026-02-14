@@ -34,9 +34,17 @@ function getDb(): BetterSqlite3.Database | null {
           priority INTEGER,
           feedback_to_user TEXT,
           created_at TEXT DEFAULT (datetime('now', 'localtime')),
-          status TEXT DEFAULT 'new'
+          status TEXT DEFAULT 'new',
+          base_id TEXT DEFAULT ''
         );
       `);
+
+      // 既存テーブルへの base_id カラム追加（マイグレーション）
+      try {
+        db.exec(`ALTER TABLE reports ADD COLUMN base_id TEXT DEFAULT ''`);
+      } catch {
+        // カラムが既に存在する場合は無視
+      }
     } catch (e) {
       console.error("[DB] 初期化エラー:", e);
       return null;
@@ -56,6 +64,7 @@ export interface Report {
   feedback_to_user: string | null;
   created_at: string;
   status: string;
+  base_id: string;
 }
 
 export function insertReport(report: {
@@ -63,6 +72,7 @@ export function insertReport(report: {
   emotion: string;
   raw_text: string;
   image_path: string | null;
+  base_id: string;
 }): void {
   const conn = getDb();
   if (!conn) {
@@ -70,10 +80,10 @@ export function insertReport(report: {
     return;
   }
   const stmt = conn.prepare(`
-    INSERT INTO reports (id, emotion, raw_text, image_path)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO reports (id, emotion, raw_text, image_path, base_id)
+    VALUES (?, ?, ?, ?, ?)
   `);
-  stmt.run(report.id, report.emotion, report.raw_text, report.image_path);
+  stmt.run(report.id, report.emotion, report.raw_text, report.image_path, report.base_id);
 }
 
 export function updateReportAiResult(

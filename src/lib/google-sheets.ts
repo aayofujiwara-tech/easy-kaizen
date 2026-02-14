@@ -7,7 +7,7 @@ const EMOTION_LABELS: Record<string, string> = {
   blue: "グッド（良いこと）",
 };
 
-const HEADERS = ["日時", "感情", "内容", "AI要約", "優先度", "画像リンク"];
+const HEADERS = ["日時", "拠点名", "感情", "内容", "AI要約", "優先度", "画像リンク"];
 
 interface SheetPayload {
   emotion: string;
@@ -17,6 +17,7 @@ interface SheetPayload {
   priority: number;
   imageBase64?: string | null;
   imageFileName?: string | null;
+  baseName?: string;
 }
 
 function getAuth() {
@@ -98,13 +99,13 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
   // ヘッダー確認・追加
   const headerRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "Sheet1!A1:F1",
+    range: "Sheet1!A1:G1",
   });
 
   if (!headerRes.data.values || headerRes.data.values.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: "Sheet1!A1:F1",
+      range: "Sheet1!A1:G1",
       valueInputOption: "RAW",
       requestBody: {
         values: [HEADERS],
@@ -133,12 +134,13 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "Sheet1!A:F",
+    range: "Sheet1!A:G",
     valueInputOption: "RAW",
     requestBody: {
       values: [
         [
           timestamp,
+          payload.baseName || "",
           emotionLabel,
           payload.rawText,
           payload.summary,

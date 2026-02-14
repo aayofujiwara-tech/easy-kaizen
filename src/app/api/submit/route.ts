@@ -5,6 +5,7 @@ import { analyzeWithAi } from "@/lib/ai";
 import { appendToSheet } from "@/lib/google-sheets";
 import { sendNotificationEmail } from "@/lib/notify-email";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { BASE_MAP, getBaseLabel } from "@/lib/bases";
 
 const ALLOWED_EMOTIONS = ["red", "yellow", "blue"];
 const MAX_TEXT_LENGTH = 2000;
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const emotion = formData.get("emotion") as string;
     const text = formData.get("text") as string;
+    const baseId = (formData.get("base_id") as string) || "";
     const imageFile = formData.get("image") as File | null;
 
     if (!emotion || !text?.trim()) {
@@ -37,6 +39,13 @@ export async function POST(req: NextRequest) {
     if (!ALLOWED_EMOTIONS.includes(emotion)) {
       return NextResponse.json(
         { error: "きもちの しゅるいが ただしくありません" },
+        { status: 400 }
+      );
+    }
+
+    if (baseId && !BASE_MAP[baseId]) {
+      return NextResponse.json(
+        { error: "きょてんが ただしくありません" },
         { status: 400 }
       );
     }
@@ -76,10 +85,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    insertReport({ id, emotion, raw_text: text, image_path: null });
+    insertReport({ id, emotion, raw_text: text, image_path: null, base_id: baseId });
 
     const aiResult = await analyzeWithAi(emotion, text);
     updateReportAiResult(id, aiResult);
+
+    const baseName = baseId ? getBaseLabel(baseId) : "";
 
     const backgroundPayload = {
       emotion,
@@ -89,6 +100,8 @@ export async function POST(req: NextRequest) {
       imageFileName,
       summary: aiResult.summary,
       priority: aiResult.priority,
+      baseName,
+      category: aiResult.category,
     };
 
     // Vercelサーバーレス環境ではレスポンス後にバックグラウンド処理が実行されないため

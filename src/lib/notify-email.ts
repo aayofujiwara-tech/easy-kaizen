@@ -11,6 +11,12 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;");
 }
 
+const EMOTION_SUBJECT_LABELS: Record<string, string> = {
+  red: "もんだいてん",
+  yellow: "ていあん",
+  blue: "ナイス",
+};
+
 const EMOTION_LABELS: Record<string, string> = {
   red: "いかり（問題点）",
   yellow: "ひらめき（アイデア）",
@@ -23,6 +29,7 @@ interface NotifyPayload {
   imageBase64?: string | null;
   imageFileName?: string | null;
   summary: string;
+  baseName?: string;
 }
 
 export async function sendNotificationEmail(
@@ -53,14 +60,17 @@ export async function sendNotificationEmail(
   });
 
   const emotionLabel = EMOTION_LABELS[payload.emotion] || payload.emotion;
+  const emotionSubjectLabel = EMOTION_SUBJECT_LABELS[payload.emotion] || payload.emotion;
   const hasImage = !!payload.imageBase64;
   const imageStatus = hasImage ? "添付あり" : "なし";
 
-  const subject = `【改善報告】${emotionLabel} 現場から新しい声が届きました`;
+  const basePrefix = payload.baseName ? `${payload.baseName}：` : "";
+  const subject = `【改善報告】${basePrefix}${emotionSubjectLabel} 現場から新しい声が届きました`;
 
   const textBody = [
     "現場から改善報告が届きました。",
     "",
+    ...(payload.baseName ? [`■ 拠点：${payload.baseName}`] : []),
     `■ 感情：${emotionLabel}`,
     `■ 内容：${payload.rawText}`,
     `■ AIの要約：${payload.summary}`,
@@ -74,9 +84,14 @@ export async function sendNotificationEmail(
     ? `<p><strong>■ 写真：</strong><br/><img src="cid:reportImage" style="max-width:480px;" /></p>`
     : `<p><strong>■ 写真：</strong>なし</p>`;
 
+  const baseHtml = payload.baseName
+    ? `<p><strong>■ 拠点：</strong>${escapeHtml(payload.baseName)}</p>`
+    : "";
+
   const htmlBody = `
     <div style="font-family: sans-serif; line-height: 1.6;">
       <p>現場から改善報告が届きました。</p>
+      ${baseHtml}
       <p><strong>■ 感情：</strong>${escapeHtml(emotionLabel)}</p>
       <p><strong>■ 内容：</strong>${escapeHtml(payload.rawText)}</p>
       <p><strong>■ AIの要約：</strong>${escapeHtml(payload.summary)}</p>

@@ -1,14 +1,37 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import EmotionSelector from "@/components/EmotionSelector";
 import VoiceInput from "@/components/VoiceInput";
 import ImageUpload from "@/components/ImageUpload";
 import SuccessScreen from "@/components/SuccessScreen";
+import { BASES } from "@/lib/bases";
 
 type SubmitState = "idle" | "submitting" | "success";
 
 export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-xl text-gray-500">よみこみちゅう...</div>
+        </div>
+      }
+    >
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const baseFromUrl = searchParams.get("base") || "";
+  const validBaseFromUrl = BASES.some((b) => b.id === baseFromUrl)
+    ? baseFromUrl
+    : "";
+
+  const [baseId, setBaseId] = useState(validBaseFromUrl);
   const [emotion, setEmotion] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [image, setImage] = useState<File | null>(null);
@@ -16,11 +39,18 @@ export default function Home() {
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
+  const selectedBase = BASES.find((b) => b.id === baseId);
+  const isBaseLocked = !!validBaseFromUrl;
+
   const handleVoiceTranscript = useCallback((transcript: string) => {
     setText((prev) => (prev ? prev + " " + transcript : transcript));
   }, []);
 
   const handleSubmit = async () => {
+    if (!baseId) {
+      setError("きょてんを えらんでね！");
+      return;
+    }
     if (!emotion) {
       setError("きもちを えらんでね！");
       return;
@@ -37,6 +67,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append("emotion", emotion);
       formData.append("text", text);
+      formData.append("base_id", baseId);
       if (image) {
         formData.append("image", image);
       }
@@ -82,7 +113,7 @@ export default function Home() {
   return (
     <main className="max-w-lg mx-auto p-4 pb-24">
       {/* ヘッダー */}
-      <div className="text-center mb-6 pt-2">
+      <div className="text-center mb-4 pt-2">
         <h1 className="text-2xl font-bold text-gray-800">
           📋 かいぜん ほうこく
         </h1>
@@ -91,27 +122,56 @@ export default function Home() {
         </p>
       </div>
 
+      {/* 拠点表示・選択 */}
+      <section className="mb-4">
+        {isBaseLocked ? (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 text-center">
+            <span className="text-sm text-indigo-600 font-bold">
+              🏢 {selectedBase?.label}から ほうこくしています
+            </span>
+          </div>
+        ) : (
+          <>
+            <h2 className="text-base font-bold text-gray-700 mb-2">
+              🏢 きょてんを えらんでね
+            </h2>
+            <select
+              value={baseId}
+              onChange={(e) => setBaseId(e.target.value)}
+              className="w-full p-3 rounded-xl border-2 border-gray-200 text-base font-bold text-gray-700 bg-white focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 outline-none transition"
+            >
+              <option value="">-- えらんでね --</option>
+              {BASES.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+      </section>
+
       {/* ステップ1: 感情選択 */}
-      <section className="mb-6">
-        <h2 className="text-base font-bold text-gray-700 mb-3">
+      <section className="mb-4">
+        <h2 className="text-base font-bold text-gray-700 mb-2">
           ① いまの きもちは？
         </h2>
         <EmotionSelector selected={emotion} onSelect={setEmotion} />
       </section>
 
       {/* ステップ2: テキスト入力 */}
-      <section className="mb-6">
-        <h2 className="text-base font-bold text-gray-700 mb-3">
+      <section className="mb-4">
+        <h2 className="text-base font-bold text-gray-700 mb-2">
           ② くわしく おしえてね
         </h2>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="ここに かいてね... おんせいでも OK！"
-          rows={4}
-          className="w-full p-4 rounded-xl border-2 border-gray-200 text-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-200 outline-none resize-none transition"
+          rows={3}
+          className="w-full p-3 rounded-xl border-2 border-gray-200 text-base focus:border-blue-400 focus:ring-2 focus:ring-blue-200 outline-none resize-none transition"
         />
-        <div className="grid grid-cols-2 gap-3 mt-3">
+        <div className="grid grid-cols-2 gap-2 mt-2">
           <VoiceInput onTranscript={handleVoiceTranscript} />
           <ImageUpload onImageSelect={setImage} />
         </div>
@@ -119,7 +179,7 @@ export default function Home() {
 
       {/* エラー表示 */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl p-3 mb-4 text-center font-bold">
+        <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl p-3 mb-3 text-center font-bold">
           {error}
         </div>
       )}
@@ -128,7 +188,7 @@ export default function Home() {
       <button
         onClick={handleSubmit}
         disabled={submitState === "submitting"}
-        className={`w-full py-5 rounded-2xl text-xl font-bold text-white transition-all ${
+        className={`w-full py-4 rounded-2xl text-xl font-bold text-white transition-all ${
           submitState === "submitting"
             ? "bg-gray-400 cursor-not-allowed"
             : "bg-green-500 hover:bg-green-600 active:scale-98 shadow-lg shadow-green-200"

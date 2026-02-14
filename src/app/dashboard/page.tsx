@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Report } from "@/db/database";
+import { BASES, getBaseLabel } from "@/lib/bases";
 
 const emotionEmoji: Record<string, string> = {
   red: "💢",
@@ -45,7 +46,8 @@ function DashboardContent() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
-  const [filter, setFilter] = useState<string>("all");
+  const [emotionFilter, setEmotionFilter] = useState<string>("all");
+  const [baseFilter, setBaseFilter] = useState<string>("all");
 
   useEffect(() => {
     if (!token) {
@@ -71,8 +73,11 @@ function DashboardContent() {
       .catch(() => setLoading(false));
   }, [token]);
 
-  const filteredReports =
-    filter === "all" ? reports : reports.filter((r) => r.emotion === filter);
+  const filteredReports = reports.filter((r) => {
+    const emotionMatch = emotionFilter === "all" || r.emotion === emotionFilter;
+    const baseMatch = baseFilter === "all" || r.base_id === baseFilter;
+    return emotionMatch && baseMatch;
+  });
 
   if (loading) {
     return (
@@ -111,23 +116,23 @@ function DashboardContent() {
       </div>
 
       {/* 統計 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-          <div className="text-3xl mb-1">💢</div>
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+          <div className="text-2xl mb-1">💢</div>
           <div className="text-2xl font-bold text-red-600">
             {reports.filter((r) => r.emotion === "red").length}
           </div>
           <div className="text-xs text-red-500">もんだいてん</div>
         </div>
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
-          <div className="text-3xl mb-1">💡</div>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-center">
+          <div className="text-2xl mb-1">💡</div>
           <div className="text-2xl font-bold text-yellow-600">
             {reports.filter((r) => r.emotion === "yellow").length}
           </div>
           <div className="text-xs text-yellow-500">ていあん</div>
         </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
-          <div className="text-3xl mb-1">👍</div>
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+          <div className="text-2xl mb-1">👍</div>
           <div className="text-2xl font-bold text-blue-600">
             {reports.filter((r) => r.emotion === "blue").length}
           </div>
@@ -135,26 +140,49 @@ function DashboardContent() {
         </div>
       </div>
 
-      {/* フィルタ */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {[
-          { id: "all", label: "ぜんぶ" },
-          { id: "red", label: "💢 イラッ" },
-          { id: "yellow", label: "💡 ていあん" },
-          { id: "blue", label: "👍 ナイス" },
-        ].map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id)}
-            className={`px-4 py-2 rounded-full text-sm font-bold transition ${
-              filter === f.id
-                ? "bg-gray-800 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+      {/* 拠点フィルタ */}
+      <div className="mb-2">
+        <div className="text-xs font-bold text-gray-500 mb-1">🏢 きょてん</div>
+        <div className="flex flex-wrap gap-2">
+          {[{ id: "all", label: "ぜんぶ" }, ...BASES].map((b) => (
+            <button
+              key={b.id}
+              onClick={() => setBaseFilter(b.id)}
+              className={`px-3 py-1.5 rounded-full text-sm font-bold transition ${
+                baseFilter === b.id
+                  ? "bg-indigo-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* カテゴリフィルタ */}
+      <div className="mb-4">
+        <div className="text-xs font-bold text-gray-500 mb-1">😊 カテゴリ</div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "all", label: "ぜんぶ" },
+            { id: "red", label: "💢 イラッ" },
+            { id: "yellow", label: "💡 ていあん" },
+            { id: "blue", label: "👍 ナイス" },
+          ].map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setEmotionFilter(f.id)}
+              className={`px-3 py-1.5 rounded-full text-sm font-bold transition ${
+                emotionFilter === f.id
+                  ? "bg-gray-800 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* レポート一覧 */}
@@ -177,6 +205,11 @@ function DashboardContent() {
                   <span className="text-sm font-bold text-gray-600">
                     {emotionLabel[report.emotion] || report.emotion}
                   </span>
+                  {report.base_id && (
+                    <span className="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-bold">
+                      {getBaseLabel(report.base_id)}
+                    </span>
+                  )}
                   {report.priority && (
                     <span
                       className={`text-xs text-white px-2 py-0.5 rounded-full ${
