@@ -238,3 +238,107 @@ export function getReportById(id: string): Report | undefined {
     | Report
     | undefined;
 }
+
+/** 対応状況ボード用: 拠点別レポートの公開情報のみ返す（raw_text・reporter_name は非公開） */
+export interface BoardReport {
+  id: string;
+  emotion: string;
+  summary: string | null;
+  category: string | null;
+  priority: number | null;
+  status: string;
+  created_at: string;
+}
+
+export function queryBoardReports(baseId: string): BoardReport[] {
+  const conn = getDb();
+  if (!conn) return [];
+  return conn
+    .prepare(
+      `SELECT id, emotion, summary, category, priority, status, created_at
+       FROM reports WHERE base_id = ? ORDER BY created_at DESC, id DESC LIMIT 50`
+    )
+    .all(baseId) as BoardReport[];
+}
+
+/** 集計: 感情別・ステータス別・拠点別の件数 */
+export interface ReportStats {
+  byEmotion: { emotion: string; count: number }[];
+  byStatus: { status: string; count: number }[];
+  byBase: { base_id: string; count: number }[];
+  byMonth: { month: string; count: number }[];
+  total: number;
+}
+
+export function getReportStats(): ReportStats {
+  const conn = getDb();
+  if (!conn) {
+    return { byEmotion: [], byStatus: [], byBase: [], byMonth: [], total: 0 };
+  }
+
+  const byEmotion = conn
+    .prepare("SELECT emotion, COUNT(*) as count FROM reports GROUP BY emotion")
+    .all() as { emotion: string; count: number }[];
+
+  const byStatus = conn
+    .prepare("SELECT status, COUNT(*) as count FROM reports GROUP BY status")
+    .all() as { status: string; count: number }[];
+
+  const byBase = conn
+    .prepare("SELECT base_id, COUNT(*) as count FROM reports WHERE base_id != '' GROUP BY base_id")
+    .all() as { base_id: string; count: number }[];
+
+  const byMonth = conn
+    .prepare(
+      `SELECT substr(created_at, 1, 7) as month, COUNT(*) as count
+       FROM reports GROUP BY month ORDER BY month DESC LIMIT 12`
+    )
+    .all() as { month: string; count: number }[];
+
+  const total = (
+    conn.prepare("SELECT COUNT(*) as count FROM reports").get() as { count: number }
+  ).count;
+
+  return { byEmotion, byStatus, byBase, byMonth, total };
+}
+
+/** CSV出力用: フィルタ付き全件取得（raw_textを含む、認証済みダッシュボード専用） */
+export function queryReportsForExport(query: ReportQuery): Report[] {
+  const conn = getDb();
+  if (!conn) return [];
+
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (query.emotion && query.emotion !== "all") {
+    conditions.push("emotion = ?");
+    params.push(query.emotion);
+  }
+  if (query.base_id && query.base_id !== "all") {
+    conditions.push("base_id = ?");
+    params.push(query.base_id);
+  }
+  if (query.status && query.status !== "all") {
+    conditions.push("status = ?");
+    params.push(query.status);
+  }
+  if (query.keyword) {
+    conditions.push("(raw_text LIKE ? OR summary LIKE ? OR reporter_name LIKE ?)");
+    const like = `%${query.keyword}%`;
+    params.push(like, like, like);
+  }
+  if (query.date_from) {
+    conditions.push("created_at >= ?");
+    params.push(query.date_from);
+  }
+  if (query.date_to) {
+    conditions.push("created_at <= ?");
+    params.push(query.date_to);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  return conn
+    .prepare(`SELECT * FROM reports ${where} ORDER BY created_at DESC, id DESC`)
+    .all(...params) as Report[];
+}

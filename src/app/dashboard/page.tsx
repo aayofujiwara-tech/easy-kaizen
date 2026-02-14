@@ -66,6 +66,17 @@ function DashboardContent() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
+  // 集計
+  interface Stats {
+    byEmotion: { emotion: string; count: number }[];
+    byStatus: { status: string; count: number }[];
+    byBase: { base_id: string; count: number }[];
+    byMonth: { month: string; count: number }[];
+    total: number;
+  }
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [showStats, setShowStats] = useState(false);
+
   // フィルタ
   const [page, setPage] = useState(1);
   const [emotionFilter, setEmotionFilter] = useState("all");
@@ -194,6 +205,30 @@ function DashboardContent() {
     }
   };
 
+  const fetchStats = async () => {
+    try {
+      const res = await fetch("/api/reports/stats");
+      if (res.ok) {
+        const data = await res.json();
+        setStats(data);
+        setShowStats(true);
+      }
+    } catch {
+      // サイレント
+    }
+  };
+
+  const handleExportCsv = () => {
+    const params = new URLSearchParams();
+    if (emotionFilter !== "all") params.set("emotion", emotionFilter);
+    if (baseFilter !== "all") params.set("base_id", baseFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (debouncedKeyword) params.set("keyword", debouncedKeyword);
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    window.location.href = `/api/reports/export?${params.toString()}`;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -241,15 +276,122 @@ function DashboardContent() {
       {/* ヘッダー */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-gray-800">📊 かいぜん ダッシュボード</h1>
-        <div className="flex items-center gap-3">
-          <a href="/" className="text-blue-500 hover:text-blue-600 text-sm font-medium">
-            ＋ あたらしい ほうこく
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchStats}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-100 text-purple-600 hover:bg-purple-200 transition"
+          >
+            📈 しゅうけい
+          </button>
+          <button
+            onClick={handleExportCsv}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition"
+          >
+            📥 CSV
+          </button>
+          <a href="/" className="text-blue-500 hover:text-blue-600 text-xs font-medium">
+            ＋ ほうこく
           </a>
           <button onClick={handleLogout} className="text-gray-400 hover:text-gray-600 text-xs">
             ログアウト
           </button>
         </div>
       </div>
+
+      {/* 集計パネル */}
+      {showStats && stats && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-gray-700">📈 しゅうけい（全 {stats.total} 件）</h2>
+            <button onClick={() => setShowStats(false)} className="text-gray-400 hover:text-gray-600 text-xs">
+              ✕ とじる
+            </button>
+          </div>
+
+          {/* 感情別 */}
+          <div className="mb-3">
+            <div className="text-xs font-bold text-gray-500 mb-1.5">カテゴリ別</div>
+            <div className="flex gap-3">
+              {[
+                { key: "red", emoji: "💢", label: "イラッ", color: "bg-red-400" },
+                { key: "yellow", emoji: "💡", label: "ていあん", color: "bg-yellow-400" },
+                { key: "blue", emoji: "👍", label: "ナイス", color: "bg-blue-400" },
+              ].map((e) => {
+                const count = stats.byEmotion.find((s) => s.emotion === e.key)?.count || 0;
+                const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
+                return (
+                  <div key={e.key} className="flex-1">
+                    <div className="flex items-center gap-1 mb-1">
+                      <span className="text-sm">{e.emoji}</span>
+                      <span className="text-xs text-gray-600">{e.label}</span>
+                      <span className="text-xs font-bold text-gray-800 ml-auto">{count}</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full ${e.color} rounded-full`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ステータス別 */}
+          <div className="mb-3">
+            <div className="text-xs font-bold text-gray-500 mb-1.5">ステータス別</div>
+            <div className="grid grid-cols-4 gap-2">
+              {STATUS_OPTIONS.map((s) => {
+                const count = stats.byStatus.find((st) => st.status === s.id)?.count || 0;
+                return (
+                  <div key={s.id} className="text-center">
+                    <div className={`text-lg font-bold ${s.color === "bg-gray-500" ? "text-gray-600" : s.color === "bg-blue-500" ? "text-blue-600" : s.color === "bg-yellow-500" ? "text-yellow-600" : "text-green-600"}`}>
+                      {count}
+                    </div>
+                    <div className="text-xs text-gray-500">{s.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 拠点別 */}
+          {stats.byBase.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-bold text-gray-500 mb-1.5">拠点別</div>
+              <div className="flex flex-wrap gap-2">
+                {stats.byBase.map((b) => (
+                  <div key={b.base_id} className="bg-indigo-50 rounded-lg px-3 py-1.5 text-center">
+                    <div className="text-sm font-bold text-indigo-600">{b.count}</div>
+                    <div className="text-xs text-indigo-500">{getBaseLabel(b.base_id)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 月別推移 */}
+          {stats.byMonth.length > 0 && (
+            <div>
+              <div className="text-xs font-bold text-gray-500 mb-1.5">月別すいい</div>
+              <div className="flex items-end gap-1 h-20">
+                {[...stats.byMonth].reverse().map((m) => {
+                  const maxCount = Math.max(...stats.byMonth.map((x) => x.count), 1);
+                  const heightPct = Math.max((m.count / maxCount) * 100, 4);
+                  return (
+                    <div key={m.month} className="flex-1 flex flex-col items-center">
+                      <span className="text-xs font-bold text-gray-600 mb-0.5">{m.count}</span>
+                      <div
+                        className="w-full bg-indigo-400 rounded-t"
+                        style={{ height: `${heightPct}%` }}
+                      />
+                      <span className="text-xs text-gray-400 mt-1">{m.month.slice(5)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 検索バー */}
       <div className="mb-3">
