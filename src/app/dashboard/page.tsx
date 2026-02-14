@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Report } from "@/db/database";
 
 const emotionEmoji: Record<string, string> = {
@@ -24,19 +25,51 @@ const priorityColor: Record<number, string> = {
 };
 
 export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-xl text-gray-500">よみこみちゅう...</div>
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token");
+
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(false);
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
-    fetch("/api/reports")
-      .then((res) => res.json())
+    if (!token) {
+      setAuthError(true);
+      setLoading(false);
+      return;
+    }
+    fetch(`/api/reports?token=${encodeURIComponent(token)}`)
+      .then((res) => {
+        if (res.status === 401 || res.status === 503) {
+          setAuthError(true);
+          setLoading(false);
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => {
-        setReports(data.reports || []);
+        if (data) {
+          setReports(data.reports || []);
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   const filteredReports =
     filter === "all" ? reports : reports.filter((r) => r.emotion === filter);
@@ -45,6 +78,20 @@ export default function DashboardPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-xl text-gray-500">よみこみちゅう...</div>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen text-center px-4">
+        <div className="text-4xl mb-4">🔒</div>
+        <h1 className="text-xl font-bold text-gray-700 mb-2">
+          アクセスけんが ひつようです
+        </h1>
+        <p className="text-sm text-gray-500">
+          かんりしゃから おしえてもらった URL を つかってね
+        </p>
       </div>
     );
   }
