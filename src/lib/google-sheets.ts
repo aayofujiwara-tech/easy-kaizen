@@ -12,7 +12,20 @@ const EMOTION_LABELS: Record<string, string> = {
 // 2. 投稿内容（テキスト、画像、感情、AI解析結果）
 // 3. 名前（ユーザーが自ら入力した場合のみ。未入力時は「匿名」）
 // 4. 投稿日（日付のみ。時刻は含めない — 少人数拠点での個人推測を防止）
-const HEADERS = ["投稿日", "拠点名", "名前", "感情", "優先度", "内容", "AI要約", "画像リンク"];
+const HEADERS = ["投稿日", "拠点名", "名前", "感情", "優先度", "カテゴリ", "内容", "AI要約", "画像リンク"];
+
+// 対応管理シート（印刷・掲示用）
+// 管理者が「ステータス」「対応メモ」列を手動で更新して運用する
+const STATUS_SHEET_NAME = "対応管理";
+const STATUS_HEADERS = [
+  "投稿日",
+  "拠点名",
+  "カテゴリ",
+  "優先度",
+  "AI要約",
+  "ステータス",    // 管理者が手動入力: 新規→確認済→対応中→完了
+  "対応メモ",      // 管理者が自由記入
+];
 
 interface SheetPayload {
   emotion: string;
@@ -20,6 +33,7 @@ interface SheetPayload {
   imagePath: string | null;
   summary: string;
   priority: number;
+  category?: string;
   imageBase64?: string | null;
   imageFileName?: string | null;
   baseName?: string;
@@ -110,22 +124,25 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
 
   const sheets = google.sheets({ version: "v4", auth });
 
-  // ヘッダー確認・追加
+  // ヘッダー確認・追加（Sheet1: 投稿ログ）
   const headerRes = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "Sheet1!A1:H1",
+    range: "Sheet1!A1:I1",
   });
 
   if (!headerRes.data.values || headerRes.data.values.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: "Sheet1!A1:H1",
+      range: "Sheet1!A1:I1",
       valueInputOption: "RAW",
       requestBody: {
         values: [HEADERS],
       },
     });
   }
+
+  // 対応管理シートの初期化（存在しなければ作成）
+  await ensureStatusSheet(sheets, spreadsheetId);
 
   // 画像をGoogle Driveにアップロード
   let imageLink = "";
@@ -152,10 +169,12 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
   });
   const emotionLabel = EMOTION_LABELS[payload.emotion] || payload.emotion;
   const displayName = payload.reporterName || "匿名（とくめい）";
+  const categoryLabel = payload.category || "";
 
+  // Sheet1: 投稿ログ（全情報）
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "Sheet1!A:H",
+    range: "Sheet1!A:I",
     valueInputOption: "RAW",
     requestBody: {
       values: [
@@ -165,6 +184,7 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
           displayName,
           emotionLabel,
           payload.priority,
+          categoryLabel,
           payload.rawText,
           payload.summary,
           imageLink,
@@ -173,5 +193,60 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
     },
   });
 
-  console.log("[Sheets] スプレッドシートに追記完了");
+  // 対応管理シート: ステータス管理用（印刷・掲示向け）
+  // 「ステータス」は「新規」、「対応メモ」は空欄で初期化 — 管理者が手動で更新
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${STATUS_SHEET_NAME}!A:G`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [
+        [
+          dateOnly,
+          payload.baseName || "",
+          categoryLabel,
+          payload.priority,
+          payload.summary,
+          "新規",       // ステータス初期値
+          "",           // 対応メモ（管理者が記入）
+        ],
+      ],
+    },
+  });
+
+  console.log("[Sheets] 投稿ログ + 対応管理シートに追記完了");
+}
+
+/** 対応管理シートが存在しなければ作成し、ヘッダーを書き込む */
+async function ensureStatusSheet(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string
+): Promise<void> {
+  try {
+    // シートの存在確認
+    const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties.title" });
+    const sheetNames = meta.data.sheets?.map((s) => s.properties?.title) || [];
+
+    if (sheetNames.includes(STATUS_SHEET_NAME)) return;
+
+    // シートを新規作成
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: STATUS_SHEET_NAME } } }],
+      },
+    });
+
+    // ヘッダー書き込み
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${STATUS_SHEET_NAME}!A1:G1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [STATUS_HEADERS] },
+    });
+
+    console.log("[Sheets] 対応管理シートを作成しました");
+  } catch (e) {
+    console.warn("[Sheets] 対応管理シートの初期化をスキップ:", e);
+  }
 }
