@@ -187,20 +187,18 @@ export async function POST(req: NextRequest) {
       reporterName: displayName,
     };
 
-    // レスポンス高速化: AI分析完了後に即レスポンスを返す
-    // Google Sheets・メール送信はレスポンス後に実行（Vercelのgrace period内に完了する想定）
-    // 万が一完了しなくてもメール通知で内容は届くため、データ欠損リスクは許容範囲
-    Promise.allSettled([
+    // Google Sheets書き込み・メール送信を実行（レスポンス返却前に完了させる）
+    // サーバーレス環境(Vercel)ではレスポンス後にプロセスが終了するため、awaitが必須
+    const [sheetsResult, emailResult] = await Promise.allSettled([
       appendToSheet(backgroundPayload),
       sendNotificationEmail(backgroundPayload),
-    ]).then(([sheetsResult, emailResult]) => {
-      if (sheetsResult.status === "rejected") {
-        console.error("[Google Sheets] 書き込みエラー:", sheetsResult.reason);
-      }
-      if (emailResult.status === "rejected") {
-        console.error("[Email] 送信エラー:", emailResult.reason);
-      }
-    });
+    ]);
+    if (sheetsResult.status === "rejected") {
+      console.error("[Google Sheets] 書き込みエラー:", sheetsResult.reason);
+    }
+    if (emailResult.status === "rejected") {
+      console.error("[Email] 送信エラー:", emailResult.reason);
+    }
 
     return NextResponse.json({
       id,
