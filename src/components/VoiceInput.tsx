@@ -98,9 +98,21 @@ export default function VoiceInput({ onTranscript }: Props) {
 
   if (!isSupported) {
     return (
-      <p className="text-sm text-gray-400 text-center">
-        このブラウザでは おんせい にゅうりょく が つかえません
-      </p>
+      <div className="flex flex-col items-center gap-1">
+        <button
+          type="button"
+          disabled
+          className="w-full flex flex-col items-center justify-center gap-1 py-4 rounded-2xl bg-gray-100 text-gray-400 border-2 border-gray-200 cursor-not-allowed"
+        >
+          <span className="text-3xl" role="img" aria-label="マイク">🎤</span>
+          <span className="text-sm">おんせい</span>
+        </button>
+        <p className="text-xs text-gray-400 text-center leading-relaxed">
+          このブラウザでは おんせいが つかえません。
+          <br />
+          Chrome か Safari で ひらいてね
+        </p>
+      </div>
     );
   }
 

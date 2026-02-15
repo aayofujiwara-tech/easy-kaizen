@@ -35,7 +35,6 @@ export default function ImageUpload({ onImageSelect }: Props) {
         ref={fileRef}
         type="file"
         accept="image/*"
-        capture="environment"
         onChange={handleChange}
         className="hidden"
         id="image-upload"
