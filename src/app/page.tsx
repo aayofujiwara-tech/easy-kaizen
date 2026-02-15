@@ -39,6 +39,7 @@ function HomeContent() {
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
+  const [lastSubmittedText, setLastSubmittedText] = useState("");
 
   const selectedBase = BASES.find((b) => b.id === baseId);
   const isBaseLocked = !!validBaseFromUrl;
@@ -59,6 +60,12 @@ function HomeContent() {
     if (!text.trim()) {
       setError("なにか かいてね！");
       return;
+    }
+
+    if (lastSubmittedText && text.trim() === lastSubmittedText) {
+      if (!window.confirm("おなじ ないようだけど、もういちど おくる？")) {
+        return;
+      }
     }
 
     setError("");
@@ -84,6 +91,7 @@ function HomeContent() {
       }
 
       const data = await res.json();
+      setLastSubmittedText(text.trim());
       setFeedback(
         data.feedback_to_user ||
           "ほうこく ありがとう！げんばの こえを とどけてくれて うれしいです！"

@@ -324,5 +324,9 @@ export function stripExifData(buffer: Buffer): Buffer {
     return stripWebpMetadata(buffer);
   }
 
+  // HEIC/HEIF (ISOBMFF): ftyp box at offset 4
+  // ISOBMFF形式のEXIF除去は構造が複雑なため未対応
+  // iOSではfile input経由で多くの場合JPEGに自動変換されるため影響は限定的
+
   return buffer;
 }

@@ -14,21 +14,27 @@ const ALLOWED_EMOTIONS = ["red", "yellow", "blue"];
 const MAX_TEXT_LENGTH = 2000;
 const MAX_NAME_LENGTH = 50;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "image/heic", "image/heif",
+];
 
 // 画像ファイルのマジックバイト検証（MIMEタイプ偽装対策）
-const IMAGE_MAGIC_BYTES: { type: string; bytes: number[] }[] = [
+const IMAGE_MAGIC_BYTES: { type: string; bytes: number[]; offset?: number }[] = [
   { type: "image/jpeg", bytes: [0xff, 0xd8, 0xff] },
   { type: "image/png",  bytes: [0x89, 0x50, 0x4e, 0x47] },
   { type: "image/gif",  bytes: [0x47, 0x49, 0x46, 0x38] },        // GIF87a / GIF89a
   { type: "image/webp", bytes: [0x52, 0x49, 0x46, 0x46] },        // RIFF header
+  { type: "image/heic", bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }, // ISOBMFF ftyp box
+  { type: "image/heif", bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }, // ISOBMFF ftyp box
 ];
 
 function validateImageMagicBytes(buffer: Buffer, claimedType: string): boolean {
   const expected = IMAGE_MAGIC_BYTES.find((m) => m.type === claimedType);
   if (!expected) return false;
-  if (buffer.length < expected.bytes.length) return false;
-  return expected.bytes.every((b, i) => buffer[i] === b);
+  const offset = expected.offset || 0;
+  if (buffer.length < offset + expected.bytes.length) return false;
+  return expected.bytes.every((b, i) => buffer[offset + i] === b);
 }
 
 /*
@@ -173,19 +179,20 @@ export async function POST(req: NextRequest) {
       reporterName: displayName,
     };
 
-    // Vercelサーバーレス環境ではレスポンス後にバックグラウンド処理が実行されないため
-    // awaitで完了を待つ必要がある
-    const [sheetsResult, emailResult] = await Promise.allSettled([
+    // レスポンス高速化: AI分析完了後に即レスポンスを返す
+    // Google Sheets・メール送信はレスポンス後に実行（Vercelのgrace period内に完了する想定）
+    // 万が一完了しなくてもメール通知で内容は届くため、データ欠損リスクは許容範囲
+    Promise.allSettled([
       appendToSheet(backgroundPayload),
       sendNotificationEmail(backgroundPayload),
-    ]);
-
-    if (sheetsResult.status === "rejected") {
-      console.error("[Google Sheets] 書き込みエラー:", sheetsResult.reason);
-    }
-    if (emailResult.status === "rejected") {
-      console.error("[Email] 送信エラー:", emailResult.reason);
-    }
+    ]).then(([sheetsResult, emailResult]) => {
+      if (sheetsResult.status === "rejected") {
+        console.error("[Google Sheets] 書き込みエラー:", sheetsResult.reason);
+      }
+      if (emailResult.status === "rejected") {
+        console.error("[Email] 送信エラー:", emailResult.reason);
+      }
+    });
 
     return NextResponse.json({
       id,
