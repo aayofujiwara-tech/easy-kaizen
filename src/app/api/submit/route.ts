@@ -4,7 +4,7 @@ import { insertReport, updateReportAiResult } from "@/db/database";
 import { analyzeWithAi } from "@/lib/ai";
 import { appendToSheet } from "@/lib/google-sheets";
 import { sendNotificationEmail } from "@/lib/notify-email";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkSubmitRateLimit } from "@/lib/rate-limit";
 import { BASE_MAP, getBaseLabel } from "@/lib/bases";
 import { stripExifData } from "@/lib/strip-exif";
 
@@ -52,10 +52,17 @@ function validateImageMagicBytes(buffer: Buffer, claimedType: string): boolean {
 export async function POST(req: NextRequest) {
   try {
     // CSRF対策: Origin/Refererヘッダーが自サイトと一致することを検証
+    // Hostヘッダーが存在しない場合もリクエストを拒否する（ヘッダー除去によるバイパス防止）
     const origin = req.headers.get("origin");
     const referer = req.headers.get("referer");
     const host = req.headers.get("host");
-    if (host) {
+    if (!host) {
+      return NextResponse.json(
+        { error: "ふせいな リクエストです" },
+        { status: 403 }
+      );
+    }
+    {
       const allowedOrigin = `https://${host}`;
       const allowedOriginHttp = `http://${host}`;
       const originOk = origin === allowedOrigin || origin === allowedOriginHttp;
@@ -70,8 +77,9 @@ export async function POST(req: NextRequest) {
 
     // 匿名性担保: IPアドレスはレートリミット判定のみに使用し、ハッシュ化される（rate-limit.ts参照）
     // DB・ログ・通知には一切記録しない
+    // スパム対策: 投稿APIには汎用レートリミットより厳しい専用リミットを適用
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const rateCheck = checkRateLimit(ip);
+    const rateCheck = checkSubmitRateLimit(ip);
     if (!rateCheck.allowed) {
       return NextResponse.json(
         { error: "おくりすぎだよ、すこし まってね" },

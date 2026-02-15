@@ -44,3 +44,52 @@ export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: n
   requests[key] = valid;
   return { allowed: true };
 }
+
+// ===== 投稿専用の厳格なレートリミット =====
+// スパム攻撃対策: 投稿APIにはより厳しい制限を適用
+// - 1分あたり3件まで（通常利用では十分）
+// - IP偽装によるバイパスを困難にするため、グローバルリミットも併用
+const submitWindowMs = 60 * 1000;
+const maxSubmitPerIp = 3;       // IPあたり1分3件
+const maxSubmitGlobal = 30;     // サーバー全体で1分30件（複数IP使用のスパム対策）
+const submitRequests: Record<string, number[]> = {};
+let globalSubmitTimestamps: number[] = [];
+
+setInterval(() => {
+  const now = Date.now();
+  const keys = Object.keys(submitRequests);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const valid = submitRequests[key].filter((t: number) => now - t < submitWindowMs);
+    if (valid.length === 0) {
+      delete submitRequests[key];
+    } else {
+      submitRequests[key] = valid;
+    }
+  }
+  globalSubmitTimestamps = globalSubmitTimestamps.filter((t) => now - t < submitWindowMs);
+}, 60 * 1000);
+
+export function checkSubmitRateLimit(ip: string): { allowed: boolean; retryAfterMs?: number } {
+  const key = anonymizeKey(ip);
+  const now = Date.now();
+
+  // グローバルリミットチェック（複数IP使用のスパム対策）
+  globalSubmitTimestamps = globalSubmitTimestamps.filter((t) => now - t < submitWindowMs);
+  if (globalSubmitTimestamps.length >= maxSubmitGlobal) {
+    return { allowed: false, retryAfterMs: submitWindowMs - (now - globalSubmitTimestamps[0]) };
+  }
+
+  // IPごとのリミットチェック
+  const timestamps = submitRequests[key] || [];
+  const valid = timestamps.filter((t: number) => now - t < submitWindowMs);
+  if (valid.length >= maxSubmitPerIp) {
+    const oldest = valid[0];
+    return { allowed: false, retryAfterMs: submitWindowMs - (now - oldest) };
+  }
+
+  valid.push(now);
+  submitRequests[key] = valid;
+  globalSubmitTimestamps.push(now);
+  return { allowed: true };
+}

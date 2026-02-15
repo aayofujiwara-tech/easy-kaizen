@@ -18,11 +18,23 @@ const STATUS_LABELS: Record<string, string> = {
   resolved: "完了",
 };
 
+/**
+ * CSVフィールドのエスケープ（CSV Injection対策を含む）
+ *
+ * セキュリティ: =, +, -, @, \t, \r で始まる値はExcel等で数式・コマンドとして解釈される。
+ * 例: =CMD|'/C calc'!A0  →  Excelで開くと電卓が起動
+ * 対策: 先頭にシングルクォートを付与し、数式として解釈されないようにする。
+ */
 function escapeCsvField(value: string): string {
-  if (value.includes('"') || value.includes(",") || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
+  let escaped = value;
+  // CSV Injection対策: 数式インジェクション文字で始まる場合はプレフィックスを付与
+  if (/^[=+\-@\t\r]/.test(escaped)) {
+    escaped = `'${escaped}`;
   }
-  return value;
+  if (escaped.includes('"') || escaped.includes(",") || escaped.includes("\n") || escaped !== value) {
+    return `"${escaped.replace(/"/g, '""')}"`;
+  }
+  return escaped;
 }
 
 /** CSVエクスポートAPI（認証必須） */

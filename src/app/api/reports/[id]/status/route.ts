@@ -25,16 +25,9 @@ export async function PATCH(
     return NextResponse.json({ error: "サーバーの設定が必要です" }, { status: 503 });
   }
 
-  let authenticated = false;
+  // 認証: Cookie認証のみ許可（URLトークン認証はトークンがログ・履歴に残るため廃止）
   const sessionCookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-  if (sessionCookie) {
-    authenticated = verifySessionToken(sessionCookie, expected);
-  }
-  if (!authenticated) {
-    const token = req.nextUrl.searchParams.get("token");
-    if (token && token === expected) authenticated = true;
-  }
-  if (!authenticated) {
+  if (!sessionCookie || !verifySessionToken(sessionCookie, expected)) {
     return NextResponse.json({ error: "アクセスけんが ありません" }, { status: 401 });
   }
 

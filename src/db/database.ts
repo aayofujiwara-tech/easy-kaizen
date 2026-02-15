@@ -182,6 +182,11 @@ export interface PaginatedReports {
   totalPages: number;
 }
 
+/** LIKE検索用: ワイルドカード文字をエスケープし、意図しないパターンマッチを防止する */
+function escapeLikePattern(pattern: string): string {
+  return pattern.replace(/[%_\\]/g, (ch) => `\\${ch}`);
+}
+
 export function queryReports(query: ReportQuery): PaginatedReports {
   const conn = getDb();
   if (!conn) {
@@ -208,8 +213,8 @@ export function queryReports(query: ReportQuery): PaginatedReports {
     params.push(query.status);
   }
   if (query.keyword) {
-    conditions.push("(raw_text LIKE ? OR summary LIKE ? OR reporter_name LIKE ?)");
-    const like = `%${query.keyword}%`;
+    conditions.push("(raw_text LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\' OR reporter_name LIKE ? ESCAPE '\\')");
+    const like = `%${escapeLikePattern(query.keyword)}%`;
     params.push(like, like, like);
   }
   if (query.date_from) {
@@ -344,8 +349,8 @@ export function queryReportsForExport(query: ReportQuery): Report[] {
     params.push(query.status);
   }
   if (query.keyword) {
-    conditions.push("(raw_text LIKE ? OR summary LIKE ? OR reporter_name LIKE ?)");
-    const like = `%${query.keyword}%`;
+    conditions.push("(raw_text LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\' OR reporter_name LIKE ? ESCAPE '\\')");
+    const like = `%${escapeLikePattern(query.keyword)}%`;
     params.push(like, like, like);
   }
   if (query.date_from) {

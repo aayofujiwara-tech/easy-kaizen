@@ -52,6 +52,8 @@ export default function DashboardPage() {
 function DashboardContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  // セキュリティ: URLトークンによる自動ログインは廃止（トークンがブラウザ履歴・ログに残るため）
+  // /dashboard?token=xxx でアクセスされた場合はURLからトークンを除去する
   const tokenFromUrl = searchParams.get("token");
 
   // 認証
@@ -125,37 +127,25 @@ function DashboardContent() {
     }
   }, [page, emotionFilter, baseFilter, statusFilter, debouncedKeyword, dateFrom, dateTo]);
 
-  // URL トークンからの自動ログイン
+  // セキュリティ: URLにトークンが含まれていた場合はURLから除去してリダイレクト
   useEffect(() => {
     if (tokenFromUrl) {
-      fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: tokenFromUrl }),
-      })
-        .then((res) => {
-          if (res.ok) {
-            router.replace("/dashboard");
-            fetchReports();
-          } else {
-            setNeedsLogin(true);
-            setLoading(false);
-          }
-        })
-        .catch(() => {
-          setNeedsLogin(true);
-          setLoading(false);
-        });
-    } else {
+      router.replace("/dashboard");
+    }
+  }, [tokenFromUrl, router]);
+
+  // 初回データ取得
+  useEffect(() => {
+    if (!tokenFromUrl) {
       fetchReports();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tokenFromUrl, router]);
+  }, []);
 
   // フィルタ変更で再フェッチ
   useEffect(() => {
-    if (!needsLogin && !tokenFromUrl) fetchReports();
-  }, [fetchReports, needsLogin, tokenFromUrl]);
+    if (!needsLogin) fetchReports();
+  }, [fetchReports, needsLogin]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
