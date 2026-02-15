@@ -36,6 +36,48 @@ echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=========================================="
 echo ""
 
+# ===== ログイン処理 =====
+echo "=== ログイン処理 ==="
+AUTH_AVAILABLE=false
+
+if [ -z "$DASHBOARD_TOKEN" ]; then
+  echo -e "${YELLOW}[WARNING]${NC} DASHBOARD_TOKEN 環境変数が未設定です"
+  echo "  認証が必要なテストはスキップされます"
+  echo "  実行例: DASHBOARD_TOKEN=your-token ./security-tests/test-all.sh"
+else
+  # 既存のCookieファイルをクリア
+  rm -f "$COOKIE_FILE"
+
+  login_resp=$(curl -s -w "\n%{http_code}" -c "$COOKIE_FILE" \
+    -X POST "$BASE_URL/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"token\":\"$DASHBOARD_TOKEN\"}")
+  login_body=$(echo "$login_resp" | head -n -1)
+  login_status=$(echo "$login_resp" | tail -1)
+
+  if [ "$login_status" = "200" ]; then
+    echo -e "${GREEN}[OK]${NC} ログイン成功 (HTTP $login_status)"
+
+    # Cookieファイルの中身を検証
+    if grep -q "kaizen_session" "$COOKIE_FILE"; then
+      AUTH_AVAILABLE=true
+      echo -e "${GREEN}[OK]${NC} kaizen_session Cookie を確認"
+      session_val=$(grep "kaizen_session" "$COOKIE_FILE" | awk '{print $NF}')
+      echo "  セッション値: ${session_val:0:20}..."
+    else
+      echo -e "${RED}[ERROR]${NC} Cookieファイルに kaizen_session が見つかりません"
+      echo "  Cookieファイルの内容:"
+      cat "$COOKIE_FILE"
+    fi
+  else
+    echo -e "${RED}[ERROR]${NC} ログイン失敗 (HTTP $login_status)"
+    echo "  レスポンス: $login_body"
+  fi
+fi
+
+echo "  認証状態: AUTH_AVAILABLE=$AUTH_AVAILABLE"
+echo ""
+
 # ===== 2-1. インジェクション系 =====
 
 echo "=== 2-1. インジェクション系 ==="
@@ -67,7 +109,7 @@ for payload in "${CSV_PAYLOADS[@]}"; do
   submit_id=$(echo "$submit_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 
   if [ -z "$submit_id" ]; then
-    echo "  Payload: $payload -> Submit failed (rate limit?), skipping"
+    echo "  Payload: ${payload:0:30}... -> Submit failed (rate limit?), skipping"
     sleep 25
     continue
   fi
@@ -76,33 +118,62 @@ done
 # レートリミット待機後にCSVエクスポート
 sleep 2
 
-csv_output=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports/export")
+if $AUTH_AVAILABLE; then
+  csv_output=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports/export")
 
-for payload in "${CSV_PAYLOADS[@]}"; do
-  first_char="${payload:0:1}"
-  # CSVに元のペイロードがそのまま含まれているか確認
-  if echo "$csv_output" | grep -qF "$payload"; then
-    log_fail "CSV Injection: ペイロード '$first_char...' がエスケープされずに出力"
-    CSV_ALL_PASS=false
+  if [ -z "$csv_output" ] || echo "$csv_output" | grep -qi "unauthorized\|401\|アクセスけん"; then
+    log_warn "CSV Injection (export): 認証済みだがエクスポート取得失敗"
+  else
+    # CSVの各行を検証: 危険な先頭文字（= + - @）で始まるセルがエスケープされているか
+    # エスケープ済み = 先頭に ' が付与されている（'= '+ '- '@）
+    csv_unescaped_found=false
+    while IFS= read -r line; do
+      # ヘッダー行をスキップ
+      if echo "$line" | grep -q "^日付,拠点"; then
+        continue
+      fi
+      # 各フィールドを抽出して先頭文字チェック
+      # CSVフィールドは "..." で囲まれている場合がある
+      for dangerous_char in '=' '+' '@' '-'; do
+        # パターン: ,= or ^= (フィールド先頭が危険文字でかつ ' プレフィックスなし)
+        # ,"= は 「ダブルクォート+危険文字」= エスケープ済み（'= が含まれる）
+        # 生の危険文字で始まるフィールドがあれば脆弱
+        if echo "$line" | grep -qP "(^|,)\"?\\${dangerous_char}" 2>/dev/null; then
+          # 'プレフィックス付きか確認
+          if ! echo "$line" | grep -qP "(^|,)\"?'\\${dangerous_char}" 2>/dev/null; then
+            echo "  FAIL: エスケープされていないフィールド検出 (char=$dangerous_char)"
+            echo "    行: ${line:0:120}..."
+            csv_unescaped_found=true
+          fi
+        fi
+      done
+    done <<< "$csv_output"
+
+    if $csv_unescaped_found; then
+      log_fail "CSV Injection: エスケープされていないフィールドが存在"
+      CSV_ALL_PASS=false
+    fi
+
+    # エスケープされた形式（'プレフィックス付き）を確認
+    if echo "$csv_output" | grep -q "'="; then
+      echo "  確認: '= プレフィックスによるエスケープを検出"
+    fi
+    if echo "$csv_output" | grep -qF "'+"; then
+      echo "  確認: '+ プレフィックスによるエスケープを検出"
+    fi
+    if echo "$csv_output" | grep -q "'@"; then
+      echo "  確認: '@ プレフィックスによるエスケープを検出"
+    fi
+    if echo "$csv_output" | grep -q "'-"; then
+      echo "  確認: '- プレフィックスによるエスケープを検出"
+    fi
+
+    if $CSV_ALL_PASS; then
+      log_pass "CSV Injection: 全ペイロードがエスケープ済み"
+    fi
   fi
-done
-
-# エスケープされた形式（'プレフィックス付き）を確認
-if echo "$csv_output" | grep -q "'="; then
-  echo "  確認: '= プレフィックスによるエスケープを検出"
-fi
-if echo "$csv_output" | grep -q "'+"; then
-  echo "  確認: '+ プレフィックスによるエスケープを検出"
-fi
-if echo "$csv_output" | grep -q "'@"; then
-  echo "  確認: '@ プレフィックスによるエスケープを検出"
-fi
-if echo "$csv_output" | grep -q "'-"; then
-  echo "  確認: '- プレフィックスによるエスケープを検出"
-fi
-
-if $CSV_ALL_PASS; then
-  log_pass "CSV Injection: 全ペイロードがエスケープ済み"
+else
+  log_warn "CSV Injection (export): 認証なしのためスキップ"
 fi
 echo ""
 
@@ -225,11 +296,17 @@ if [ -n "$xss_id" ]; then
   fi
 
   # reports API（認証必須）のレスポンス確認
-  reports_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword=script")
-  if echo "$reports_resp" | grep -q '<script>'; then
-    log_warn "XSS: reports APIレスポンスにHTMLタグが存在（React自動エスケープに依存）"
+  if $AUTH_AVAILABLE; then
+    reports_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword=script")
+    if [ -z "$reports_resp" ] || echo "$reports_resp" | grep -qi "アクセスけん"; then
+      log_warn "XSS: reports API 認証済みだがレスポンス取得失敗"
+    elif echo "$reports_resp" | grep -q '<script>'; then
+      log_warn "XSS: reports APIレスポンスにHTMLタグが存在（React自動エスケープに依存）"
+    else
+      log_pass "XSS: reports APIレスポンスにHTMLタグなし（またはキーワードにマッチせず）"
+    fi
   else
-    log_pass "XSS: reports APIレスポンスにHTMLタグなし（またはキーワードにマッチせず）"
+    log_warn "XSS: reports API 認証なしのためスキップ"
   fi
 fi
 
@@ -245,7 +322,7 @@ echo "危険: 攻撃者がDBクエリを操作してデータを窃取・改ざ�
 
 # パラメータ化クエリの使用確認
 sqli_param=$(grep -c "\.prepare(" /home/user/easy-kaizen/src/db/database.ts)
-sqli_raw=$(grep -c "db.exec.*\${" /home/user/easy-kaizen/src/db/database.ts)
+sqli_raw=$(grep -c 'db.exec.*\${' /home/user/easy-kaizen/src/db/database.ts)
 
 if [ "$sqli_param" -gt 0 ] && [ "$sqli_raw" -eq 0 ]; then
   log_pass "SQL Injection: 全クエリがパラメータ化（prepare文 ${sqli_param}箇所、文字列結合0箇所）"
@@ -263,18 +340,24 @@ else
   log_warn "SQL Injection: base_idの不正入力がステータス${sqli_status}で返却"
 fi
 
-# keyword検索でのSQLインジェクション
-sqli_keyword_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword='+OR+'1'='1")
-sqli_keyword_status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword='+OR+'1'='1")
+# keyword検索でのSQLインジェクション（認証必須）
+if $AUTH_AVAILABLE; then
+  sqli_keyword_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword='+OR+'1'='1")
+  sqli_keyword_status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword='+OR+'1'='1")
 
-if [ "$sqli_keyword_status" = "200" ]; then
-  # レスポンスにエラーが含まれていないか
-  if echo "$sqli_keyword_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null | grep -q "^0$"; then
-    log_pass "SQL Injection: SQLインジェクションペイロードが0件で安全に処理"
-  else
-    total=$(echo "$sqli_keyword_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null)
-    log_warn "SQL Injection: keyword SQLiペイロードで${total}件返却（パラメータ化クエリなら安全）"
+  if [ -z "$sqli_keyword_resp" ] || echo "$sqli_keyword_resp" | grep -qi "アクセスけん"; then
+    log_warn "SQL Injection (keyword): 認証済みだがレスポンス取得失敗"
+  elif [ "$sqli_keyword_status" = "200" ]; then
+    # レスポンスにエラーが含まれていないか
+    sqli_total=$(echo "$sqli_keyword_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null)
+    if [ "$sqli_total" = "0" ]; then
+      log_pass "SQL Injection: SQLインジェクションペイロードが0件で安全に処理"
+    else
+      log_warn "SQL Injection: keyword SQLiペイロードで${sqli_total}件返却（パラメータ化クエリなら安全）"
+    fi
   fi
+else
+  log_warn "SQL Injection (keyword): 認証なしのためスキップ"
 fi
 
 # エラー情報漏洩チェック
@@ -302,22 +385,28 @@ else
   log_fail "LIKE ワイルドカード: ESCAPE句がSQL文に含まれない"
 fi
 
-# %単体での検索
-like_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword=%25")
-like_total=$(echo "$like_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))" 2>/dev/null)
+# %単体での検索（認証必須）
+if $AUTH_AVAILABLE; then
+  like_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?keyword=%25")
+  like_total=$(echo "$like_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))" 2>/dev/null)
 
-# 通常検索で比較
-normal_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports")
-normal_total=$(echo "$normal_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))" 2>/dev/null)
+  # 通常検索で比較
+  normal_resp=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports")
+  normal_total=$(echo "$normal_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))" 2>/dev/null)
 
-if [ "$like_total" = "0" ] || [ "$like_total" != "$normal_total" ]; then
-  log_pass "LIKE ワイルドカード: '%'検索が全件取得にならない (keyword=%: ${like_total}件, 通常: ${normal_total}件)"
-else
-  if [ "$normal_total" = "0" ]; then
-    log_warn "LIKE ワイルドカード: DB にデータがないため判定不可"
+  if [ -z "$like_total" ] || echo "$like_resp" | grep -qi "アクセスけん"; then
+    log_warn "LIKE ワイルドカード: 認証済みだがレスポンス取得失敗"
+  elif [ "$like_total" = "0" ] || [ "$like_total" != "$normal_total" ]; then
+    log_pass "LIKE ワイルドカード: '%'検索が全件取得にならない (keyword=%: ${like_total}件, 通常: ${normal_total}件)"
   else
-    log_fail "LIKE ワイルドカード: '%'で全件取得が可能 (${like_total}/${normal_total}件)"
+    if [ "$normal_total" = "0" ]; then
+      log_warn "LIKE ワイルドカード: DB にデータがないため判定不可"
+    else
+      log_fail "LIKE ワイルドカード: '%'で全件取得が可能 (${like_total}/${normal_total}件)"
+    fi
   fi
+else
+  log_warn "LIKE ワイルドカード (検索テスト): 認証なしのためスキップ"
 fi
 echo ""
 
@@ -416,7 +505,9 @@ else
 fi
 
 # URLトークンでのアクセス試行（廃止されたはず）
-urltoken_reports=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/reports?token=test-secret-token-12345")
+# 注: DASHBOARD_TOKENがない場合でもダミー値でテスト可能（401が返るべき）
+urltoken_test_val="${DASHBOARD_TOKEN:-dummy-test-token}"
+urltoken_reports=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/reports?token=$urltoken_test_val")
 if [ "$urltoken_reports" = "401" ]; then
   log_pass "認証バイパス: URLトークン認証が廃止済み（401）"
 else
@@ -452,6 +543,142 @@ if [ "$noauth_status" = "401" ]; then
   log_pass "認証バイパス: /api/reports/[id]/status が認証なしで401"
 else
   log_fail "認証バイパス: /api/reports/[id]/status が認証なしでHTTP ${noauth_status}"
+fi
+echo ""
+
+# ----- IDOR (Insecure Direct Object Reference) -----
+echo "--- Test: IDOR (Insecure Direct Object Reference) ---"
+echo "危険: 認証済みユーザーが他人のレポートにアクセス・変更できる"
+
+if $AUTH_AVAILABLE; then
+  # テスト用レポートを投稿してIDを取得
+  sleep 22
+  idor_submit_resp=$(curl -s -X POST "$BASE_URL/api/submit" \
+    -H "Origin: http://localhost:3999" \
+    -H "Referer: http://localhost:3999/" \
+    -H "Host: localhost:3999" \
+    -F "emotion=blue" \
+    -F "text=IDOR test report" \
+    -F "base_id=hq")
+  idor_id=$(echo "$idor_submit_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+
+  if [ -n "$idor_id" ]; then
+    echo "  テスト用レポートID: $idor_id"
+
+    # 正常系: 認証済みでステータス更新
+    idor_ok_status=$(curl -s -o /dev/null -w "%{http_code}" \
+      -b "$COOKIE_FILE" \
+      -X PATCH "$BASE_URL/api/reports/$idor_id/status" \
+      -H "Content-Type: application/json" \
+      -d '{"status":"acknowledged"}')
+    if [ "$idor_ok_status" = "200" ]; then
+      log_pass "IDOR: 正常な認証済みステータス更新が成功 (HTTP $idor_ok_status)"
+    else
+      log_warn "IDOR: 正常なステータス更新が失敗 (HTTP $idor_ok_status)"
+    fi
+
+    # 存在しないIDでPATCH → 404が返るべき
+    idor_notfound_status=$(curl -s -o /dev/null -w "%{http_code}" \
+      -b "$COOKIE_FILE" \
+      -X PATCH "$BASE_URL/api/reports/nonexistent-uuid-12345/status" \
+      -H "Content-Type: application/json" \
+      -d '{"status":"resolved"}')
+    if [ "$idor_notfound_status" = "404" ]; then
+      log_pass "IDOR: 存在しないIDが404で拒否 (HTTP $idor_notfound_status)"
+    else
+      log_fail "IDOR: 存在しないIDがHTTP ${idor_notfound_status}（404であるべき）"
+    fi
+
+    # 別のbase_idのレポートにアクセス試行
+    # まず別base_idでレポートを投稿
+    sleep 22
+    idor_other_resp=$(curl -s -X POST "$BASE_URL/api/submit" \
+      -H "Origin: http://localhost:3999" \
+      -H "Referer: http://localhost:3999/" \
+      -H "Host: localhost:3999" \
+      -F "emotion=red" \
+      -F "text=IDOR other base test" \
+      -F "base_id=pacific")
+    idor_other_id=$(echo "$idor_other_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+
+    if [ -n "$idor_other_id" ]; then
+      # 別base_idのレポートのステータスを変更できるか
+      idor_cross_status=$(curl -s -o /dev/null -w "%{http_code}" \
+        -b "$COOKIE_FILE" \
+        -X PATCH "$BASE_URL/api/reports/$idor_other_id/status" \
+        -H "Content-Type: application/json" \
+        -d '{"status":"resolved"}')
+      # 注: 現在のAPIは全レポートの管理権限を持つ（base_id単位の認可制御なし）
+      # これはシングルテナント設計の仕様であるが、マルチテナント化時には要修正
+      if [ "$idor_cross_status" = "200" ]; then
+        log_warn "IDOR: 別base_idのレポートを変更可能 (HTTP $idor_cross_status) — シングルテナント設計の仕様だが要注意"
+      elif [ "$idor_cross_status" = "403" ]; then
+        log_pass "IDOR: 別base_idのレポートへのアクセスが403で拒否"
+      else
+        log_warn "IDOR: 別base_idのレポートへのアクセスがHTTP ${idor_cross_status}"
+      fi
+    else
+      log_warn "IDOR: 別base_idテスト用レポートの投稿に失敗（レートリミット等）"
+    fi
+  else
+    log_warn "IDOR: テスト用レポートの投稿に失敗（レートリミット等）"
+  fi
+else
+  log_warn "IDOR: 認証なしのためスキップ"
+fi
+echo ""
+
+# ----- セッション固定攻撃 -----
+echo "--- Test: セッション固定攻撃 ---"
+echo "危険: ログイン前後でセッションIDが変わらない場合、攻撃者がセッションを乗っ取れる"
+
+if [ -n "$DASHBOARD_TOKEN" ]; then
+  # ログイン前のCookieを記録
+  pre_cookie_file="/tmp/pre_login_cookies.txt"
+  rm -f "$pre_cookie_file"
+
+  # まず初回ログインしてセッションID取得
+  pre_login_resp=$(curl -s -w "\n%{http_code}" -c "$pre_cookie_file" \
+    -X POST "$BASE_URL/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"token\":\"$DASHBOARD_TOKEN\"}")
+  pre_login_status=$(echo "$pre_login_resp" | tail -1)
+  pre_session=""
+  if [ "$pre_login_status" = "200" ]; then
+    pre_session=$(grep "kaizen_session" "$pre_cookie_file" | awk '{print $NF}')
+  fi
+
+  # 2回目のログインでセッションIDが変わるか
+  post_cookie_file="/tmp/post_login_cookies.txt"
+  rm -f "$post_cookie_file"
+
+  post_login_resp=$(curl -s -w "\n%{http_code}" -c "$post_cookie_file" \
+    -X POST "$BASE_URL/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"token\":\"$DASHBOARD_TOKEN\"}")
+  post_login_status=$(echo "$post_login_resp" | tail -1)
+  post_session=""
+  if [ "$post_login_status" = "200" ]; then
+    post_session=$(grep "kaizen_session" "$post_cookie_file" | awk '{print $NF}')
+  fi
+
+  if [ -n "$pre_session" ] && [ -n "$post_session" ]; then
+    echo "  1回目セッション: ${pre_session:0:30}..."
+    echo "  2回目セッション: ${post_session:0:30}..."
+
+    if [ "$pre_session" != "$post_session" ]; then
+      log_pass "セッション固定: ログインごとに異なるセッションIDが発行される"
+    else
+      log_fail "セッション固定: ログイン前後でセッションIDが同一（セッション固定脆弱性）"
+    fi
+  else
+    log_warn "セッション固定: セッション取得に失敗（pre=$pre_login_status, post=$post_login_status）"
+  fi
+
+  # クリーンアップ
+  rm -f "$pre_cookie_file" "$post_cookie_file"
+else
+  log_warn "セッション固定: DASHBOARD_TOKEN未設定のためスキップ"
 fi
 echo ""
 
@@ -494,7 +721,7 @@ fi
 
 # baseはクライアント側でホワイトリストチェック（BASESリスト）されている
 # サーバー側もBASE_MAPで検証
-if grep -q "BASE_MAP\[baseId\]" /home/user/easy-kaizen/src/app/api/submit/route.ts; then
+if grep -q 'BASE_MAP\[baseId\]' /home/user/easy-kaizen/src/app/api/submit/route.ts; then
   log_pass "Open Redirect: submit APIにBASE_MAPホワイトリストチェックあり"
 fi
 echo ""
@@ -534,14 +761,15 @@ else
   log_fail "レートリミット: 10リクエスト送信しても429が返されない"
 fi
 
-# Retry-Afterヘッダー確認
-retry_after=$(curl -s -I -X POST "$BASE_URL/api/submit" \
+# Retry-Afterヘッダー確認（レートリミット超過後のレスポンスヘッダーを取得）
+retry_headers=$(curl -s -D - -o /dev/null -X POST "$BASE_URL/api/submit" \
   -H "Origin: http://localhost:3999" \
   -H "Referer: http://localhost:3999/" \
   -H "Host: localhost:3999" \
   -F "emotion=blue" \
   -F "text=retry after test" \
-  -F "base_id=hq" | grep -i "retry-after")
+  -F "base_id=hq")
+retry_after=$(echo "$retry_headers" | grep -i "retry-after")
 
 if [ -n "$retry_after" ]; then
   log_pass "レートリミット: Retry-Afterヘッダーが返却 ($retry_after)"
@@ -633,28 +861,39 @@ echo "  不正JSON応答: $err_json"
 # 存在しないエンドポイント
 err_404=$(curl -s "$BASE_URL/api/nonexistent")
 err_404_status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/nonexistent")
-if echo "$err_404" | grep -qi "stack\|trace\|node_modules\|__dirname\|webpack"; then
+# Next.js標準404はHTMLを返す。JSバンドルファイル名（webpack-xxx.js）は情報漏洩ではない
+# スタックトレースやDBパス等の実際の内部情報のみ検出する
+if echo "$err_404" | grep -qi "stack.*trace\|at.*node_modules\|__dirname\|sqlite.*error\|ENOENT\|internal server"; then
   log_fail "エラー漏洩: 404エラーにスタックトレースが含まれる"
 else
   log_pass "エラー漏洩: 404エラーに内部情報なし (HTTP $err_404_status)"
 fi
 
-# 不正な型のパラメータ
-err_type=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?page=abc&limit=-1")
-if echo "$err_type" | grep -qi "stack\|trace\|sqlite\|error.*sql"; then
-  log_fail "エラー漏洩: 不正パラメータでDB情報が漏洩"
-else
-  log_pass "エラー漏洩: 不正パラメータで内部情報漏洩なし"
-fi
+# 不正な型のパラメータ（認証必須）
+if $AUTH_AVAILABLE; then
+  err_type=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports?page=abc&limit=-1")
+  if [ -z "$err_type" ] || echo "$err_type" | grep -qi "アクセスけん"; then
+    log_warn "エラー漏洩: 認証済みだが不正パラメータテストのレスポンス取得失敗"
+  elif echo "$err_type" | grep -qi "stack\|trace\|sqlite\|error.*sql"; then
+    log_fail "エラー漏洩: 不正パラメータでDB情報が漏洩"
+  else
+    log_pass "エラー漏洩: 不正パラメータで内部情報漏洩なし"
+  fi
 
-# 不正なステータス更新
-err_status=$(curl -s -b "$COOKIE_FILE" -X PATCH "$BASE_URL/api/reports/nonexistent-id/status" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"invalid_status"}')
-if echo "$err_status" | grep -qi "stack\|trace\|sqlite"; then
-  log_fail "エラー漏洩: 不正ステータス更新でDB情報が漏洩"
+  # 不正なステータス更新
+  err_status=$(curl -s -b "$COOKIE_FILE" -X PATCH "$BASE_URL/api/reports/nonexistent-id/status" \
+    -H "Content-Type: application/json" \
+    -d '{"status":"invalid_status"}')
+  if [ -z "$err_status" ] || echo "$err_status" | grep -qi "アクセスけん"; then
+    log_warn "エラー漏洩: 認証済みだが不正ステータス更新テストのレスポンス取得失敗"
+  elif echo "$err_status" | grep -qi "stack\|trace\|sqlite"; then
+    log_fail "エラー漏洩: 不正ステータス更新でDB情報が漏洩"
+  else
+    log_pass "エラー漏洩: 不正ステータス更新で内部情報漏洩なし"
+  fi
 else
-  log_pass "エラー漏洩: 不正ステータス更新で内部情報漏洩なし"
+  log_warn "エラー漏洩 (不正パラメータ): 認証なしのためスキップ"
+  log_warn "エラー漏洩 (不正ステータス更新): 認証なしのためスキップ"
 fi
 echo ""
 
@@ -672,13 +911,24 @@ else
 fi
 
 # フロントエンドソースに秘密情報がないか
+# 検索対象: クライアントコンポーネント（src/components/ と src/app/ 内の page.tsx）
+# 除外: サーバーサイドAPIルート（src/app/api/）、process.env参照、console.warn/error
 secrets_check=$(grep -rn "DASHBOARD_TOKEN\|GEMINI_API_KEY\|OPENAI_API_KEY\|SMTP_PASS\|GOOGLE_PRIVATE_KEY\|sk-" \
-  /home/user/easy-kaizen/src/app/ /home/user/easy-kaizen/src/components/ 2>/dev/null | \
-  grep -v "process.env\|\.env\|node_modules" | wc -l)
+  /home/user/easy-kaizen/src/components/ \
+  /home/user/easy-kaizen/src/app/page.tsx \
+  /home/user/easy-kaizen/src/app/board/ \
+  /home/user/easy-kaizen/src/app/dashboard/ 2>/dev/null | \
+  grep -v "process\.env\|\.env\|node_modules\|console\.\(warn\|error\|log\)" | wc -l)
 if [ "$secrets_check" -eq 0 ]; then
   log_pass "秘密情報: フロントエンドにハードコードされた秘密情報なし"
 else
   log_fail "秘密情報: フロントエンドに秘密情報がハードコード（$secrets_check箇所）"
+  grep -rn "DASHBOARD_TOKEN\|GEMINI_API_KEY\|OPENAI_API_KEY\|SMTP_PASS\|GOOGLE_PRIVATE_KEY\|sk-" \
+    /home/user/easy-kaizen/src/components/ \
+    /home/user/easy-kaizen/src/app/page.tsx \
+    /home/user/easy-kaizen/src/app/board/ \
+    /home/user/easy-kaizen/src/app/dashboard/ 2>/dev/null | \
+    grep -v "process\.env\|\.env\|node_modules\|console\.\(warn\|error\|log\)"
 fi
 
 # .env ファイルへのHTTPアクセス
@@ -722,6 +972,67 @@ else
 fi
 echo ""
 
+# ===== 2-5. 追加テスト: 認証済みCSV Injection 実証 =====
+echo ""
+echo "=== 2-5. 追加テスト ==="
+echo ""
+
+echo "--- Test: 認証済みCSV Injection 実証テスト ---"
+echo "危険: CSVインジェクションペイロードがエスケープされていないと、管理者のPCで任意コマンドが実行される"
+
+if $AUTH_AVAILABLE; then
+  # 認証済み状態でCSVエクスポート
+  auth_csv=$(curl -s -b "$COOKIE_FILE" "$BASE_URL/api/reports/export")
+  auth_csv_status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_FILE" "$BASE_URL/api/reports/export")
+
+  if [ "$auth_csv_status" != "200" ] || [ -z "$auth_csv" ]; then
+    log_warn "認証済みCSV Injection: CSV取得失敗 (HTTP $auth_csv_status)"
+  else
+    echo "  CSV取得成功 (HTTP $auth_csv_status, ${#auth_csv} bytes)"
+
+    # CSVを1行ずつ解析: 危険な先頭文字を持つセルが未エスケープかチェック
+    auth_csv_fail=false
+    line_num=0
+    while IFS= read -r csv_line; do
+      line_num=$((line_num + 1))
+      # ヘッダー行スキップ（BOM + "日付" で始まる行）
+      if [ "$line_num" -le 1 ]; then
+        continue
+      fi
+
+      # 各フィールドを確認
+      # 危険: セル値が = + - @ で始まる場合（' プレフィックスなし）
+      # CSVフィールドは "..." で囲まれるため、"= や "+ のパターンを検出
+      for dchar in '=' '+' '-' '@'; do
+        # パターン: ,"<dangerous_char> （' プレフィックスなし）
+        # 安全: ,"'<dangerous_char>
+        if echo "$csv_line" | grep -qF ",\"${dchar}"; then
+          if ! echo "$csv_line" | grep -qF ",\"'${dchar}"; then
+            echo "  行${line_num}: 未エスケープの '${dchar}' 検出: ${csv_line:0:100}..."
+            auth_csv_fail=true
+          fi
+        fi
+        # パターン: 行頭 "<dangerous_char> （ヘッダー以外）
+        if echo "$csv_line" | grep -q "^\"${dchar}"; then
+          if ! echo "$csv_line" | grep -q "^\"'${dchar}"; then
+            echo "  行${line_num}: 行頭の未エスケープ '${dchar}' 検出"
+            auth_csv_fail=true
+          fi
+        fi
+      done
+    done <<< "$auth_csv"
+
+    if $auth_csv_fail; then
+      log_fail "認証済みCSV Injection: 未エスケープのセルが存在"
+    else
+      log_pass "認証済みCSV Injection: 全セルがエスケープ済み（認証状態で実証）"
+    fi
+  fi
+else
+  log_warn "認証済みCSV Injection: 認証なしのためスキップ"
+fi
+echo ""
+
 # ===== サマリー =====
 echo "=========================================="
 echo "  テスト結果サマリー"
@@ -730,7 +1041,8 @@ echo -e "  ${GREEN}PASS${NC}: $PASS_COUNT"
 echo -e "  ${RED}FAIL${NC}: $FAIL_COUNT"
 echo -e "  ${YELLOW}WARN${NC}: $WARN_COUNT"
 echo "  合計: $((PASS_COUNT + FAIL_COUNT + WARN_COUNT))"
+echo "  認証状態: AUTH_AVAILABLE=$AUTH_AVAILABLE"
 echo "=========================================="
 
 # 結果をファイルに出力
-echo "{\"pass\":$PASS_COUNT,\"fail\":$FAIL_COUNT,\"warn\":$WARN_COUNT}" > "$RESULTS_FILE"
+echo "{\"pass\":$PASS_COUNT,\"fail\":$FAIL_COUNT,\"warn\":$WARN_COUNT,\"auth\":$AUTH_AVAILABLE}" > "$RESULTS_FILE"

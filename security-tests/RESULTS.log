@@ -1,0 +1,151 @@
+==========================================
+  Easy Kaizen Security Test Suite
+  2026-02-15 08:07:56
+==========================================
+
+=== ログイン処理 ===
+[0;32m[OK][0m ログイン成功 (HTTP 200)
+[0;32m[OK][0m kaizen_session Cookie を確認
+  セッション値: 1771142876.10c95cf9d...
+  認証状態: AUTH_AVAILABLE=true
+
+=== 2-1. インジェクション系 ===
+
+--- Test: CSV Injection ---
+危険: 攻撃者が =CMD|'/C calc'!A0 等を投稿し、管理者がCSVをExcelで開くとコマンド実行される
+  Payload: @SUM(1+1)*cmd|'/C calc'!A0... -> Submit failed (rate limit?), skipping
+  Payload: -1+1|cmd|'/C calc'!A0... -> Submit failed (rate limit?), skipping
+  確認: '= プレフィックスによるエスケープを検出
+  確認: '+ プレフィックスによるエスケープを検出
+[0;32m[PASS][0m CSV Injection: 全ペイロードがエスケープ済み
+
+--- Test: AI Prompt Injection ---
+危険: 攻撃者がAIの分析結果を操作し、重要度を下げたりカテゴリを変更できる
+  確認: validateAiResult 関数が存在
+  確認: VALID_CATEGORIES ホワイトリストが存在
+  確認: ユーザー入力のデリミタ分離が存在
+  確認: priority の整数検証が存在
+  確認: priority の範囲検証（1-5）が存在
+[0;32m[PASS][0m AI Prompt Injection: AIが攻撃者の指示を無視 (summary)
+[0;32m[PASS][0m AI Prompt Injection: AIが攻撃者の指示を無視 (feedback)
+[0;32m[PASS][0m AI Prompt Injection: 出力値検証ロジック（validateAiResult）が実装済み
+
+--- Test: XSS (Cross-Site Scripting) ---
+危険: 攻撃者がスクリプトを投稿し、管理者のブラウザで実行される
+[0;32m[PASS][0m XSS: Content-Security-Policy ヘッダーが設定済み
+  CSP: Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+[0;32m[PASS][0m XSS: X-XSS-Protection ヘッダーが設定済み
+[0;32m[PASS][0m XSS: frame-ancestors 'none' でクリックジャッキング防止
+
+--- Test: SQL Injection ---
+危険: 攻撃者がDBクエリを操作してデータを窃取・改ざんする
+[0;32m[PASS][0m SQL Injection: 全クエリがパラメータ化（prepare文 14箇所、文字列結合0箇所）
+[0;32m[PASS][0m SQL Injection: ホワイトリスト外のbase_idが400で拒否
+[0;32m[PASS][0m SQL Injection: SQLインジェクションペイロードが0件で安全に処理
+[0;32m[PASS][0m SQL Injection: エラーレスポンスにDB情報なし
+
+--- Test: LIKE ワイルドカード攻撃 ---
+危険: % や _ で全件取得やDoSが可能
+[0;32m[PASS][0m LIKE ワイルドカード: escapeLikePattern 関数が存在
+[0;32m[PASS][0m LIKE ワイルドカード: ESCAPE句がSQL文に含まれる
+[0;32m[PASS][0m LIKE ワイルドカード: '%'検索が全件取得にならない (keyword=%: 0件, 通常: 51件)
+
+
+=== 2-2. 認証・認可系 ===
+
+--- Test: CSRF (Cross-Site Request Forgery) ---
+危険: 外部サイトからユーザーの意図しない投稿を送信される
+  正常リクエスト: HTTP 200
+[0;32m[PASS][0m CSRF: 異なるOriginが403で拒否 (HTTP 403)
+[0;32m[PASS][0m CSRF: Origin/Refererなしが403で拒否 (HTTP 403)
+[1;33m[WARN][0m CSRF: Hostヘッダー空でHTTP 400（Next.jsがHostを補完する可能性）
+
+--- Test: 認証バイパス ---
+危険: 未認証ユーザーが管理機能にアクセスできる
+[0;32m[PASS][0m 認証バイパス: /api/reports が認証なしで401
+[0;32m[PASS][0m 認証バイパス: /api/reports/stats が認証なしで401
+[0;32m[PASS][0m 認証バイパス: /api/reports/export が認証なしで401
+[0;32m[PASS][0m 認証バイパス: URLトークン認証が廃止済み（401）
+[0;32m[PASS][0m 認証バイパス: 期限切れ/偽造セッションが401で拒否
+[0;32m[PASS][0m 認証バイパス: 偽造HMAC付きトークンが401で拒否
+[0;32m[PASS][0m 認証バイパス: /api/reports/[id]/status が認証なしで401
+
+--- Test: IDOR (Insecure Direct Object Reference) ---
+危険: 認証済みユーザーが他人のレポートにアクセス・変更できる
+  テスト用レポートID: caebc7b4-6100-43b7-bde9-90e3949bc6c1
+[0;32m[PASS][0m IDOR: 正常な認証済みステータス更新が成功 (HTTP 200)
+[0;32m[PASS][0m IDOR: 存在しないIDが404で拒否 (HTTP 404)
+[1;33m[WARN][0m IDOR: 別base_idのレポートを変更可能 (HTTP 200) — シングルテナント設計の仕様だが要注意
+
+--- Test: セッション固定攻撃 ---
+危険: ログイン前後でセッションIDが変わらない場合、攻撃者がセッションを乗っ取れる
+  1回目セッション: 1771143109.a7f025f0d87e74b66f0...
+  2回目セッション: 1771143109.9cfdb649818be99821d...
+[0;32m[PASS][0m セッション固定: ログインごとに異なるセッションIDが発行される
+
+--- Test: Open Redirect ---
+危険: /?base=evil.com 等でユーザーを外部サイトに誘導
+  /?base=https://evil.com -> HTTP 200
+  /?base=//evil.com -> HTTP 200
+  /?base=javascript:alert(1) -> HTTP 200
+[0;32m[PASS][0m Open Redirect: board APIが不正base_idを400で拒否
+[0;32m[PASS][0m Open Redirect: submit APIが不正base_idを400で拒否
+[0;32m[PASS][0m Open Redirect: submit APIにBASE_MAPホワイトリストチェックあり
+
+
+=== 2-3. レートリミット・DoS系 ===
+
+--- Test: レートリミット ---
+危険: 攻撃者が大量のリクエストを送信してスパムやDoSを行う
+[0;32m[PASS][0m レートリミット: 4リクエスト目で429返却（投稿専用リミット: 3件/分）
+[0;32m[PASS][0m レートリミット: Retry-Afterヘッダーが返却 (retry-after: 60)
+[1;33m[WARN][0m レートリミット: 異なるIPで各3件ずつ送信可能（グローバル30件/分上限はテスト規模では到達しにくい）
+
+--- Test: ReDoS (Regular Expression Denial of Service) ---
+危険: 悪意ある入力でサーバーの正規表現処理がハングする
+  正規表現使用箇所: 8箇所
+  正規表現パターン一覧:
+3:import { insertReport, updateReportAiResult } from "@/db/database";
+4:import { analyzeWithAi } from "@/lib/ai";
+5:import { appendToSheet } from "@/lib/google-sheets";
+6:import { sendNotificationEmail } from "@/lib/notify-email";
+7:import { checkSubmitRateLimit } from "@/lib/rate-limit";
+[0;32m[PASS][0m ReDoS: 2000文字入力の処理時間 40ms（10秒以内）
+
+
+=== 2-4. 情報漏洩系 ===
+
+--- Test: エラー情報漏洩 ---
+危険: エラーレスポンスにスタックトレースやDB情報が含まれる
+[0;32m[PASS][0m エラー漏洩: 不正JSONエラーにスタックトレースなし
+  不正JSON応答: {"error":"トークンを入力してね"}
+[0;32m[PASS][0m エラー漏洩: 404エラーに内部情報なし (HTTP 404)
+[0;32m[PASS][0m エラー漏洩: 不正パラメータで内部情報漏洩なし
+[0;32m[PASS][0m エラー漏洩: 不正ステータス更新で内部情報漏洩なし
+
+--- Test: Token/秘密情報の露出 ---
+危険: APIキーやトークンがレスポンスに含まれる
+[0;32m[PASS][0m 秘密情報: X-Powered-By ヘッダーなし
+[0;32m[PASS][0m 秘密情報: フロントエンドにハードコードされた秘密情報なし
+[0;32m[PASS][0m 秘密情報: .env ファイルにHTTPアクセス不可 (HTTP 404)
+[0;32m[PASS][0m 秘密情報: .git にHTTPアクセス不可 (HTTP 404)
+[0;32m[PASS][0m 秘密情報: エラーレスポンスにAPIキーなし
+[0;32m[PASS][0m 秘密情報: ログイン失敗レスポンスにトークンヒントなし
+
+
+=== 2-5. 追加テスト ===
+
+--- Test: 認証済みCSV Injection 実証テスト ---
+危険: CSVインジェクションペイロードがエスケープされていないと、管理者のPCで任意コマンドが実行される
+  CSV取得成功 (HTTP 200, 16098 bytes)
+[0;32m[PASS][0m 認証済みCSV Injection: 全セルがエスケープ済み（認証状態で実証）
+
+==========================================
+  テスト結果サマリー
+==========================================
+  [0;32mPASS[0m: 43
+  [0;31mFAIL[0m: 0
+  [1;33mWARN[0m: 3
+  合計: 46
+  認証状態: AUTH_AVAILABLE=true
+==========================================
