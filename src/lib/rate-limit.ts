@@ -10,6 +10,9 @@ function anonymizeKey(ip: string): string {
   return crypto.createHash("sha256").update(HASH_SALT + ip).digest("hex").slice(0, 16);
 }
 
+// メモリ保護: エントリ数の上限（大量の異なるIPからのアクセスによるメモリ枯渇を防止）
+const MAX_ENTRIES = 10_000;
+
 const requests: Record<string, number[]> = {};
 
 // 古いエントリを定期的にクリーンアップ
@@ -28,6 +31,20 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+/** エントリ数が上限を超えた場合、最も古いエントリから削除する */
+function evictOldestEntries(store: Record<string, number[]>, maxEntries: number): void {
+  const keys = Object.keys(store);
+  if (keys.length <= maxEntries) return;
+  // 各キーの最新タイムスタンプでソートし、古いものから削除
+  const sorted = keys
+    .map((k) => ({ key: k, latest: Math.max(...store[k]) }))
+    .sort((a, b) => a.latest - b.latest);
+  const toRemove = sorted.length - maxEntries;
+  for (let i = 0; i < toRemove; i++) {
+    delete store[sorted[i].key];
+  }
+}
+
 export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: number } {
   // 匿名性担保: 生のIPアドレスではなくハッシュ値で管理
   const key = anonymizeKey(ip);
@@ -42,6 +59,7 @@ export function checkRateLimit(ip: string): { allowed: boolean; retryAfterMs?: n
 
   valid.push(now);
   requests[key] = valid;
+  evictOldestEntries(requests, MAX_ENTRIES);
   return { allowed: true };
 }
 
@@ -77,6 +95,8 @@ export function checkSubmitRateLimit(ip: string): { allowed: boolean; retryAfter
   // グローバルリミットチェック（複数IP使用のスパム対策）
   globalSubmitTimestamps = globalSubmitTimestamps.filter((t) => now - t < submitWindowMs);
   if (globalSubmitTimestamps.length >= maxSubmitGlobal) {
+    // 拒否されたリクエストもカウント（次のウィンドウまで即座に再攻撃できないようにする）
+    globalSubmitTimestamps.push(now);
     return { allowed: false, retryAfterMs: submitWindowMs - (now - globalSubmitTimestamps[0]) };
   }
 
@@ -84,6 +104,9 @@ export function checkSubmitRateLimit(ip: string): { allowed: boolean; retryAfter
   const timestamps = submitRequests[key] || [];
   const valid = timestamps.filter((t: number) => now - t < submitWindowMs);
   if (valid.length >= maxSubmitPerIp) {
+    // 拒否されたリクエストもカウント
+    valid.push(now);
+    submitRequests[key] = valid;
     const oldest = valid[0];
     return { allowed: false, retryAfterMs: submitWindowMs - (now - oldest) };
   }
@@ -91,5 +114,6 @@ export function checkSubmitRateLimit(ip: string): { allowed: boolean; retryAfter
   valid.push(now);
   submitRequests[key] = valid;
   globalSubmitTimestamps.push(now);
+  evictOldestEntries(submitRequests, MAX_ENTRIES);
   return { allowed: true };
 }

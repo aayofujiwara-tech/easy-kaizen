@@ -224,7 +224,7 @@ export async function appendToSheet(payload: SheetPayload): Promise<void> {
   console.log(`[Sheets] No.${seqNo} — 投稿ログ + 対応管理シートに追記完了`);
 }
 
-/** Sheet1のデータ行数から次の通し番号を算出 */
+/** Sheet1のA列（No.）から最大値を取得して次の通し番号を算出（同時投稿での重複を防止） */
 async function getNextSeqNo(
   sheets: ReturnType<typeof google.sheets>,
   spreadsheetId: string
@@ -234,9 +234,16 @@ async function getNextSeqNo(
       spreadsheetId,
       range: "Sheet1!A:A",
     });
-    // ヘッダー行を除いたデータ行数 + 1
-    const rowCount = res.data.values ? res.data.values.length - 1 : 0;
-    return Math.max(1, rowCount + 1);
+    const rows = res.data.values;
+    if (!rows || rows.length <= 1) return 1; // ヘッダーのみ or 空
+
+    // ヘッダー行を除き、A列の数値の最大値を取得
+    let maxNo = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const val = Number(rows[i][0]);
+      if (!isNaN(val) && val > maxNo) maxNo = val;
+    }
+    return maxNo + 1;
   } catch {
     return 1;
   }

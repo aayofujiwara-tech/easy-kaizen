@@ -53,6 +53,8 @@ function buildUserMessage(emotion: string, text: string): string {
 
 const VALID_CATEGORIES = ["安全", "品質", "効率", "環境", "コスト", "コミュニケーション", "その他"];
 
+const AI_TIMEOUT_MS = 10_000; // AI API呼び出しの最大待機時間
+
 /** AI分析結果を検証・正規化し、プロンプトインジェクションによる不正値を修正する */
 function validateAiResult(result: AiResult, emotion: string, text: string): AiResult {
   const fallback = generateFallbackResult(emotion, text);
@@ -116,26 +118,35 @@ async function analyzeWithGemini(
 ): Promise<AiResult> {
   const userMessage = buildUserMessage(emotion, text);
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `${SYSTEM_PROMPT}\n\n${userMessage}` },
-            ],
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: `${SYSTEM_PROMPT}\n\n${userMessage}` },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            responseMimeType: "application/json",
           },
-        ],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: "application/json",
-        },
-      }),
-    }
-  );
+        }),
+      }
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     const errText = await res.text();
@@ -165,22 +176,31 @@ async function analyzeWithOpenAi(
 ): Promise<AiResult> {
   const userMessage = buildUserMessage(emotion, text);
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userMessage },
+        ],
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     const errText = await res.text();

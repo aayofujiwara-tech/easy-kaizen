@@ -63,6 +63,14 @@ function getDb(): BetterSqlite3.Database | null {
         );
       `);
 
+      // パフォーマンス: フィルタ・ソートに使われるカラムにインデックスを追加
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_reports_base_id ON reports(base_id);
+        CREATE INDEX IF NOT EXISTS idx_reports_emotion ON reports(emotion);
+        CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+        CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at DESC);
+      `);
+
       // 既存テーブルへの base_id カラム追加（マイグレーション）
       try {
         db.exec(`ALTER TABLE reports ADD COLUMN base_id TEXT DEFAULT ''`);

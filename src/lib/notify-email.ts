@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-const FALLBACK_TO_EMAIL = "fujiwara@aska-g.com";
+// 送信先は環境変数 NOTIFY_TO_EMAIL で設定する（未設定時はメール送信をスキップ）
 
 function escapeHtml(str: string): string {
   return str
@@ -41,8 +41,12 @@ export async function sendNotificationEmail(
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
   const fromAddress = process.env.NOTIFY_FROM_EMAIL;
-  const toAddress = process.env.NOTIFY_TO_EMAIL || FALLBACK_TO_EMAIL;
+  const toAddress = process.env.NOTIFY_TO_EMAIL;
 
+  if (!toAddress || toAddress.startsWith("your_")) {
+    console.warn("[Email] NOTIFY_TO_EMAIL が未設定のためスキップ");
+    return;
+  }
   if (!smtpHost || smtpHost.startsWith("your_")) {
     console.warn("[Email] SMTP_HOST が未設定またはプレースホルダーのためスキップ");
     return;

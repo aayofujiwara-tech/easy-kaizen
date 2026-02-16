@@ -14,9 +14,9 @@ const ALLOWED_EMOTIONS = ["red", "yellow", "blue"];
 const MAX_TEXT_LENGTH = 2000;
 const MAX_NAME_LENGTH = 50;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+// HEIC/HEIF はEXIFメタデータ除去が未対応のため、GPS位置情報の漏洩を防ぐために除外
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg", "image/png", "image/gif", "image/webp",
-  "image/heic", "image/heif",
 ];
 
 // 画像ファイルのマジックバイト検証（MIMEタイプ偽装対策）
@@ -25,8 +25,6 @@ const IMAGE_MAGIC_BYTES: { type: string; bytes: number[]; offset?: number }[] = 
   { type: "image/png",  bytes: [0x89, 0x50, 0x4e, 0x47] },
   { type: "image/gif",  bytes: [0x47, 0x49, 0x46, 0x38] },        // GIF87a / GIF89a
   { type: "image/webp", bytes: [0x52, 0x49, 0x46, 0x46] },        // RIFF header
-  { type: "image/heic", bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }, // ISOBMFF ftyp box
-  { type: "image/heif", bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }, // ISOBMFF ftyp box
 ];
 
 function validateImageMagicBytes(buffer: Buffer, claimedType: string): boolean {
@@ -139,7 +137,7 @@ export async function POST(req: NextRequest) {
 
       if (!ALLOWED_IMAGE_TYPES.includes(imageFile.type)) {
         return NextResponse.json(
-          { error: "JPEG, PNG, GIF, WebP のがぞうだけ おくれるよ" },
+          { error: "JPEG, PNG, GIF, WebP の がぞうだけ おくれるよ" },
           { status: 400 }
         );
       }

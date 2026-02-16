@@ -1,12 +1,12 @@
 ==========================================
   Easy Kaizen Security Test Suite
-  2026-02-15 08:59:36
+  2026-02-16 12:22:37
 ==========================================
 
 === ログイン処理 ===
 [0;32m[OK][0m ログイン成功 (HTTP 200)
 [0;32m[OK][0m kaizen_session Cookie を確認
-  セッション値: 1771145976.59a288d9e...
+  セッション値: 1771244557.bd3650213...
   認証状態: AUTH_AVAILABLE=true
 
 === 2-1. インジェクション系 ===
@@ -48,7 +48,7 @@
 危険: % や _ で全件取得やDoSが可能
 [0;32m[PASS][0m LIKE ワイルドカード: escapeLikePattern 関数が存在
 [0;32m[PASS][0m LIKE ワイルドカード: ESCAPE句がSQL文に含まれる
-[0;32m[PASS][0m LIKE ワイルドカード: '%'検索が全件取得にならない (keyword=%: 0件, 通常: 95件)
+[0;32m[PASS][0m LIKE ワイルドカード: '%'検索が全件取得にならない (keyword=%: 0件, 通常: 118件)
 
 
 === 2-2. 認証・認可系 ===
@@ -72,15 +72,15 @@
 
 --- Test: IDOR (Insecure Direct Object Reference) ---
 危険: 認証済みユーザーが他人のレポートにアクセス・変更できる
-  テスト用レポートID: 525a0861-5d56-4071-bcfb-248db9823e73
+  テスト用レポートID: ad914f47-b613-4b8e-89ad-32ea5061fdaa
 [0;32m[PASS][0m IDOR: 正常な認証済みステータス更新が成功 (HTTP 200)
 [0;32m[PASS][0m IDOR: 存在しないIDが404で拒否 (HTTP 404)
 [1;33m[WARN][0m IDOR: 別base_idのレポートを変更可能 (HTTP 200) — シングルテナント設計の仕様だが要注意
 
 --- Test: セッション固定攻撃 ---
 危険: ログイン前後でセッションIDが変わらない場合、攻撃者がセッションを乗っ取れる
-  1回目セッション: 1771146211.d274afb78b31757168e...
-  2回目セッション: 1771146211.002415624cf556051ea...
+  1回目セッション: 1771244792.b3046097dd72d375925...
+  2回目セッション: 1771244792.6dedb450833d7fbfbce...
 [0;32m[PASS][0m セッション固定: ログインごとに異なるセッションIDが発行される
 
 --- Test: Open Redirect ---
@@ -110,7 +110,7 @@
 5:import { appendToSheet } from "@/lib/google-sheets";
 6:import { sendNotificationEmail } from "@/lib/notify-email";
 7:import { checkSubmitRateLimit } from "@/lib/rate-limit";
-[0;32m[PASS][0m ReDoS: 2000文字入力の処理時間 47ms（10秒以内）
+[0;32m[PASS][0m ReDoS: 2000文字入力の処理時間 36ms（10秒以内）
 
 
 === 2-4. 情報漏洩系 ===
@@ -137,7 +137,7 @@
 
 --- Test: 認証済みCSV Injection 実証テスト ---
 危険: CSVインジェクションペイロードがエスケープされていないと、管理者のPCで任意コマンドが実行される
-  CSV取得成功 (HTTP 200, 26855 bytes)
+  CSV取得成功 (HTTP 200, 32492 bytes)
 [0;32m[PASS][0m 認証済みCSV Injection: 全セルがエスケープ済み（認証状態で実証）
 
 
@@ -154,12 +154,12 @@
 危険: HTMLタグ入りテキストがメール本文で実行され、フィッシングやトラッキングに悪用される
   escapeHtml() 使用箇所: 7箇所
   適用対象:
-    103:    ? `<p><strong>■ 拠点：</strong>${escapeHtml(payload.baseName)}</p>`
-    109:      <p><strong>■ 投稿日：</strong>${escapeHtml(dateOnly)}</p>
-    111:      <p><strong>■ 名前：</strong>${escapeHtml(displayName)}</p>
-    112:      <p><strong>■ 感情：</strong>${escapeHtml(emotionLabel)}</p>
-    113:      <p><strong>■ 内容：</strong>${escapeHtml(payload.rawText)}</p>
-    114:      <p><strong>■ AIの要約：</strong>${escapeHtml(payload.summary)}</p>
+    107:    ? `<p><strong>■ 拠点：</strong>${escapeHtml(payload.baseName)}</p>`
+    113:      <p><strong>■ 投稿日：</strong>${escapeHtml(dateOnly)}</p>
+    115:      <p><strong>■ 名前：</strong>${escapeHtml(displayName)}</p>
+    116:      <p><strong>■ 感情：</strong>${escapeHtml(emotionLabel)}</p>
+    117:      <p><strong>■ 内容：</strong>${escapeHtml(payload.rawText)}</p>
+    118:      <p><strong>■ AIの要約：</strong>${escapeHtml(payload.summary)}</p>
   確認: HTML本文内の全ユーザー入力がescapeHtml()を経由
   HTTP 000 — レスポンス: 
 [0;32m[PASS][0m メール HTMLインジェクション: escapeHtml() で全入力をエスケープ（コードレビュー確認）
@@ -171,7 +171,7 @@
     139:      valueInputOption: "RAW",
     183:    valueInputOption: "RAW",
     207:    valueInputOption: "RAW",
-    269:      valueInputOption: "RAW",
+    276:      valueInputOption: "RAW",
   valueInputOption: RAW=4箇所, USER_ENTERED=0箇所
 [0;32m[PASS][0m シート数式インジェクション: 全書き込みが valueInputOption:RAW（google-sheets.ts:183,207）
   投稿成功 (HTTP 200)
