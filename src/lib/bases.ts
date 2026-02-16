@@ -6,7 +6,7 @@ export interface Base {
 export const BASES: Base[] = [
   { id: "hq", label: "本社" },
   { id: "pacific", label: "パシフィック" },
-  { id: "renaissance", label: "ルネッサンス" },
+  { id: "pearl", label: "パール" },
   { id: "selene", label: "セレーネ" },
 ];
 
